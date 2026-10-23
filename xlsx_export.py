@@ -20,7 +20,7 @@ from changes import (
     COLOR_MEANINGS, REASON_COLORS, REASON_LABELS, REASON_ORDER, comment_text, reason_text, summarize,
 )
 from io_utils import MAX_WIDTH, MIN_WIDTH, WIDTH_SAMPLE_ROWS, _as_phone_text
-from quality import _name_words, is_blank, is_phone_like
+from quality import _name_words, is_blank, is_phone_like, profile_dataframe
 
 MAX_LOG_ROWS = 50_000       # Change Log sheet cap
 MAX_COMMENTS = 20_000       # cell-comment cap (every comment adds weight to the file)
@@ -328,3 +328,27 @@ def build_highlighted_workbook(sheets: dict, records_by_sheet: dict, report: dic
             _write_summary(summary_sheet, report, records_by_sheet, notes)
 
     return buffer.getvalue()
+
+
+def export_workbook(cleaned_sheets: dict, change_logs: dict, sheet_stats: dict, quality_before: dict,
+                    placeholders, file_name: str, original_rows: dict, include_report: bool = True) -> bytes:
+    """Everything the app needs for the Excel download in one call: turns the
+    per-sheet ChangeLogs into final records (rows numbered as in the cleaned
+    sheets) and builds the workbook. Takes only plain data, so it can run on
+    a background thread when the user clicks the download button."""
+    records = {name: log.finalize(cleaned_sheets[name]) for name, log in (change_logs or {}).items() if name in cleaned_sheets}
+
+    report = None
+    if include_report:
+        report = {
+            "file_name": file_name,
+            "generated": datetime.now(),
+            "sheet_stats": sheet_stats,
+            "quality_by_sheet": {
+                name: {"before": quality_before[name], "after": profile_dataframe(cleaned_sheets[name], list(placeholders))}
+                for name, info in sheet_stats.items() if info["cleaned"] and name in quality_before
+            },
+            "original_rows": original_rows,
+            "final_rows": {name: len(df) for name, df in cleaned_sheets.items()},
+        }
+    return build_highlighted_workbook(cleaned_sheets, records, report)

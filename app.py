@@ -29,6 +29,7 @@ Run it with:
 
 import copy
 import json
+from functools import partial
 
 import streamlit as st  # the web UI framework
 
@@ -36,6 +37,7 @@ from changes import ChangeLog
 from cleaning import clean_dataframe_with_steps
 from derive import detect_relationships
 from io_utils import load_sheets, convert_to_download_bytes
+from xlsx_export import export_workbook
 from report import build_report_text, render_quality_panel, render_summary_panel
 from locales import LOCALES, DEFAULT_LOCALE
 from quality import DEFAULT_PLACEHOLDERS, columns_with_inconsistent_casing, parse_placeholder_text, profile_dataframe
@@ -108,7 +110,7 @@ uploaded_file = st.file_uploader("Upload your .xlsx or .csv file", type=["xlsx",
 SESSION_KEYS = (
     "cleaned_sheets", "sheet_stats", "report_text", "original_filename", "is_csv",
     "suggested_rules_by_sheet", "rule_outcomes_by_sheet", "suggestion_info", "placeholder_list", "quality_before",
-    "change_logs",
+    "change_logs", "original_rows",
 )
 for key in SESSION_KEYS:
     if key not in st.session_state:
@@ -253,6 +255,7 @@ if uploaded_file is not None:
         st.session_state.cleaned_sheets = cleaned_sheets
         st.session_state.sheet_stats = sheet_stats
         st.session_state.change_logs = change_logs
+        st.session_state.original_rows = {name: len(sheets[name]) for name in sheets_to_clean}
         st.session_state.is_csv = is_csv
         st.session_state.original_filename = uploaded_file.name
         st.session_state.placeholder_list = placeholder_list  # also used to keep placeholders out of the AI samples
@@ -480,15 +483,47 @@ if st.session_state.cleaned_sheets is not None:
             )
 
     # --- Download buttons for the cleaned file and the report ---
-    file_bytes = convert_to_download_bytes(cleaned_sheets, is_csv)
-    output_name = base_name + ("_cleaned.csv" if is_csv else "_cleaned.xlsx")
+    XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
-    st.download_button(
-        label="Download Cleaned File",
-        data=file_bytes,
-        file_name=output_name,
-        mime="text/csv" if is_csv else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    include_report = st.checkbox(
+        "Add a \"Cleaning Summary\" and a \"Change Log\" sheet to the Excel file",
+        value=True,
+        key="include_report_sheets",
+        help="Two extra sheets are added at the END of the workbook (your own sheets are never changed or "
+             "reordered): a one-page summary of what was cleaned, and a filterable list of every changed cell.",
     )
+    # The highlighted workbook is built only when the download button is clicked
+    # (newer Streamlit); older versions get it built up front.
+    build_excel = partial(
+        export_workbook, cleaned_sheets, st.session_state.change_logs, st.session_state.sheet_stats,
+        st.session_state.quality_before, placeholders_in_effect, st.session_state.original_filename,
+        st.session_state.original_rows, include_report,
+    )
+    excel_data = build_excel if "callable" in (st.download_button.__doc__ or "") else build_excel()
+
+    if is_csv:
+        st.download_button(
+            label="Download Cleaned File",
+            data=convert_to_download_bytes(cleaned_sheets, is_csv),
+            file_name=base_name + "_cleaned.csv",
+            mime="text/csv",
+        )
+        st.download_button(
+            label="Download as Excel (with highlights)",
+            data=excel_data,
+            file_name=base_name + "_cleaned_highlighted.xlsx",
+            mime=XLSX_MIME,
+            help="CSV files can't store colors or comments, so this Excel copy highlights every cell that was "
+                 "changed (with a note saying what it was and why). Your plain CSV download is unchanged.",
+        )
+    else:
+        st.download_button(
+            label="Download Cleaned File",
+            data=excel_data,
+            file_name=base_name + "_cleaned.xlsx",
+            mime=XLSX_MIME,
+            help="An Excel file with every changed cell highlighted and annotated.",
+        )
 
     st.download_button(
         label="Download Cleaning Report (.txt)",
