@@ -8,6 +8,7 @@ no Streamlit code in here, so this logic can be tested and reused on its own.
 import numpy as np   # used to represent "missing" values (NaN)
 import pandas as pd
 
+from changes import NUMERIC, PLACEHOLDER, TRIMMED
 from derive import apply_fills
 
 from quality import (
@@ -181,12 +182,14 @@ def clean_dataframe_with_steps(df: pd.DataFrame, steps: dict, options: dict = No
     'steps' is a dict like {"headers": True, "trim": True, ...}; steps that
     aren't in the dict are not run. 'options' carries settings such as the
     placeholder list and the approved relationships to fill from:
-    {"placeholders": ["ERROR", "UNKNOWN"], "relationships": [...from derive.detect_relationships...]}.
+    {"placeholders": ["ERROR", "UNKNOWN"], "relationships": [...from derive.detect_relationships...],
+    "changes": a changes.ChangeLog that records every cell these steps change}.
 
     For every step, we record what it did in `stats`. A value of None means
     "this step was skipped", so the report can tell 'skipped' apart from
     'ran but found nothing to change' (which would be 0)."""
     options = options or {}
+    log = options.get("changes")  # optional changes.ChangeLog collecting every changed cell
     stats = {
         "header_renames": [],
         "cells_trimmed": None,
@@ -200,8 +203,11 @@ def clean_dataframe_with_steps(df: pd.DataFrame, steps: dict, options: dict = No
         stats["header_renames"] = renames
 
     if steps["trim"]:
+        before = df.copy() if log is not None else None
         df, trimmed_count = trim_whitespace(df)
         stats["cells_trimmed"] = trimmed_count
+        if log is not None:
+            log.record_diff(before, df, TRIMMED, strict=True)
 
     # Placeholders come before duplicates/empty-row removal so that rows which
     # only differed by a placeholder ("ERROR" vs blank) are recognised as the
@@ -209,14 +215,23 @@ def clean_dataframe_with_steps(df: pd.DataFrame, steps: dict, options: dict = No
     if "placeholders" in steps:
         stats["placeholders"] = None
         if steps["placeholders"]:
+            before = df.copy() if log is not None else None
             df, stats["placeholders"] = convert_placeholders(df, options.get("placeholders", DEFAULT_PLACEHOLDERS))
+            if log is not None:
+                log.record_diff(before, df, PLACEHOLDER)
 
     # Numbers stored as text become real numbers (after placeholders are gone, so
     # "ERROR" can no longer block the conversion).
     if "numeric" in steps:
         stats["numeric"] = None
         if steps["numeric"]:
+            before = df.copy() if log is not None else None
             df, stats["numeric"] = convert_numeric_columns(df, options.get("placeholders", DEFAULT_PLACEHOLDERS))
+            if log is not None:
+                # Only conversions that change what the cell shows ("1,500" -> 1500) are cell changes;
+                # "5" -> 5 just changes the type, which the report already lists per column.
+                log.record_diff(before, df, NUMERIC, detail="thousands separator removed", strict=True,
+                                where=lambda old, new: isinstance(old, str) and "," in old)
 
     if steps["duplicates"]:
         df, duplicates_removed = remove_duplicate_rows(df)
@@ -232,6 +247,6 @@ def clean_dataframe_with_steps(df: pd.DataFrame, steps: dict, options: dict = No
     if "fills" in steps:
         stats["fills"] = None
         if steps["fills"]:
-            df, stats["fills"] = apply_fills(df, options.get("relationships", []))
+            df, stats["fills"] = apply_fills(df, options.get("relationships", []), log)
 
     return df, stats

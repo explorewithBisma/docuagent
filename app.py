@@ -32,6 +32,7 @@ import json
 
 import streamlit as st  # the web UI framework
 
+from changes import ChangeLog
 from cleaning import clean_dataframe_with_steps
 from derive import detect_relationships
 from io_utils import load_sheets, convert_to_download_bytes
@@ -107,6 +108,7 @@ uploaded_file = st.file_uploader("Upload your .xlsx or .csv file", type=["xlsx",
 SESSION_KEYS = (
     "cleaned_sheets", "sheet_stats", "report_text", "original_filename", "is_csv",
     "suggested_rules_by_sheet", "rule_outcomes_by_sheet", "suggestion_info", "placeholder_list", "quality_before",
+    "change_logs",
 )
 for key in SESSION_KEYS:
     if key not in st.session_state:
@@ -233,10 +235,13 @@ if uploaded_file is not None:
     if st.button("Clean File"):
         cleaned_sheets = {}
         sheet_stats = {}
+        change_logs = {}  # every changed cell, per sheet - kept in memory only
 
         for name, original_df in sheets.items():
             if name in sheets_to_clean:
-                sheet_options = {**options, "relationships": approved_relationships.get(name, [])}
+                change_logs[name] = ChangeLog()
+                sheet_options = {**options, "relationships": approved_relationships.get(name, []),
+                                 "changes": change_logs[name]}
                 cleaned_df, stats = clean_dataframe_with_steps(original_df.copy(), steps, sheet_options)
                 sheet_stats[name] = {"cleaned": True, "stats": stats}
             else:
@@ -247,6 +252,7 @@ if uploaded_file is not None:
 
         st.session_state.cleaned_sheets = cleaned_sheets
         st.session_state.sheet_stats = sheet_stats
+        st.session_state.change_logs = change_logs
         st.session_state.is_csv = is_csv
         st.session_state.original_filename = uploaded_file.name
         st.session_state.placeholder_list = placeholder_list  # also used to keep placeholders out of the AI samples
@@ -422,7 +428,10 @@ if st.session_state.cleaned_sheets is not None:
                         if error:
                             outcomes.append({"rule": rule, "error": error})
                             continue
-                        df_after_rules, stats = rule_engine.apply_rule(df_after_rules, rule, skip_values=placeholders_in_effect)
+                        df_after_rules, stats = rule_engine.apply_rule(
+                            df_after_rules, rule, skip_values=placeholders_in_effect,
+                            log=(st.session_state.change_logs or {}).get(sheet_name),
+                        )
                         outcomes.append({"rule": rule, "stats": stats})
                     updated_sheets[sheet_name] = df_after_rules
                     rule_outcomes_by_sheet[sheet_name] = outcomes

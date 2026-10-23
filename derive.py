@@ -20,6 +20,7 @@ from itertools import combinations
 import numpy as np
 import pandas as pd
 
+from changes import CALCULATED, LOOKUP
 from quality import has_identifier_name
 
 MIN_ROWS = 50           # rows that must support a relationship before it is believed
@@ -154,7 +155,14 @@ def _assign(df: pd.DataFrame, column: str, index, values) -> None:
         df.loc[index, column] = list(values)
 
 
-def _fill_lookup(df: pd.DataFrame, relationship: dict, stats: dict) -> int:
+def _show(df: pd.DataFrame, column: str, value) -> str:
+    """A number as it will look in the cell: whole numbers without '.0' in integer columns."""
+    if str(df[column].dtype) == "Int64" or pd.api.types.is_integer_dtype(df[column]):
+        return str(int(round(float(value))))
+    return str(float(value)) if isinstance(value, (float, np.floating)) else str(value)
+
+
+def _fill_lookup(df: pd.DataFrame, relationship: dict, stats: dict, log=None) -> int:
     key_column, value_column = relationship["key"], relationship["value"]
     filled = 0
 
@@ -168,13 +176,23 @@ def _fill_lookup(df: pd.DataFrame, relationship: dict, stats: dict) -> int:
         found = df.loc[wanted, source].map(mapping)
         found = found[found.notna()]
         if len(found):
+            if log is not None:
+                for index, value in found.items():
+                    source_value = df.at[index, source]
+                    if target == value_column:
+                        detail = (f"{key_column} {source_value} -> {value_column} {_show(df, target, value)} "
+                                  f"(every other {source_value} row had the same {value_column})")
+                    else:
+                        detail = (f"{value_column} {_show(df, source, source_value)} -> {key_column} {value} "
+                                  f"(only {value} has this {value_column})")
+                    log.add(index, target, df.at[index, target], value, LOOKUP, detail)
             _assign(df, target, found.index, found.to_numpy())
             stats["lookup"][target] = stats["lookup"].get(target, 0) + len(found)
             filled += len(found)
     return filled
 
 
-def _fill_product(df: pd.DataFrame, relationship: dict, stats: dict) -> int:
+def _fill_product(df: pd.DataFrame, relationship: dict, stats: dict, log=None) -> int:
     target = relationship["target"]
     first, second = relationship["factors"]
     filled = 0
@@ -187,6 +205,11 @@ def _fill_product(df: pd.DataFrame, relationship: dict, stats: dict) -> int:
     if str(df[target].dtype) == "Int64":
         wanted &= np.isclose(products, np.round(products), rtol=0, atol=1e-9)
     if wanted.any():
+        if log is not None:
+            for position in np.flatnonzero(wanted):
+                detail = f"{first} {_show(df, first, b[position])} x {second} {_show(df, second, c[position])}"
+                log.add(df.index[position], target, df.iat[position, df.columns.get_loc(target)],
+                        products[position], CALCULATED, detail)
         _assign(df, target, df.index[wanted], products[wanted])
         stats["calculated"][target] = stats["calculated"].get(target, 0) + int(wanted.sum())
         filled += int(wanted.sum())
@@ -203,6 +226,13 @@ def _fill_product(df: pd.DataFrame, relationship: dict, stats: dict) -> int:
         if str(df[column].dtype) == "Int64":
             wanted &= np.isclose(quotient, np.round(quotient), rtol=0, atol=1e-9)
         if wanted.any():
+            if log is not None:
+                other = second if column == first else first
+                for position in np.flatnonzero(wanted):
+                    detail = (f"{target} {_show(df, target, known[position])} / "
+                              f"{other} {_show(df, other, divisor[position])}")
+                    log.add(df.index[position], column, df.iat[position, df.columns.get_loc(column)],
+                            quotient[position], CALCULATED, detail)
             _assign(df, column, df.index[wanted], quotient[wanted])
             stats["calculated"][column] = stats["calculated"].get(column, 0) + int(wanted.sum())
             filled += int(wanted.sum())
@@ -214,23 +244,24 @@ def _fill_product(df: pd.DataFrame, relationship: dict, stats: dict) -> int:
     return filled
 
 
-def apply_fills(df: pd.DataFrame, relationships: list):
+def apply_fills(df: pd.DataFrame, relationships: list, log=None):
     """Fill missing values using the APPROVED relationships (a list of dicts
     from detect_relationships). Existing values are never changed. Runs up to
     3 rounds because one fill can make another possible. Returns the
     DataFrame and {"calculated": {column: n}, "lookup": {column: n},
     "passes": rounds that filled something}; 'calculated' is exact
-    arithmetic, 'lookup' is inferred from the file."""
+    arithmetic, 'lookup' is inferred from the file. If a changes.ChangeLog is
+    passed as `log`, every filled cell is recorded with how it was worked out."""
     stats = {"calculated": {}, "lookup": {}, "passes": 0}
 
     for _ in range(MAX_PASSES):
         filled = 0
         for relationship in relationships:
             if relationship["kind"] == "lookup":
-                filled += _fill_lookup(df, relationship, stats)
+                filled += _fill_lookup(df, relationship, stats, log)
         for relationship in relationships:
             if relationship["kind"] == "product":
-                filled += _fill_product(df, relationship, stats)
+                filled += _fill_product(df, relationship, stats, log)
         if filled == 0:
             break
         stats["passes"] += 1

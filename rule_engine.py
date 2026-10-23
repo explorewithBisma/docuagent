@@ -19,6 +19,7 @@ import pandas as pd
 import phonenumbers
 
 from locales import LOCALES
+from changes import AI_RULE
 from quality import normalize_placeholders
 
 
@@ -239,10 +240,15 @@ def validate_rule(rule: dict, available_columns: list) -> str:
     return ""
 
 
-def apply_rule(df: pd.DataFrame, rule: dict, skip_values=()):
+def apply_rule(df: pd.DataFrame, rule: dict, skip_values=(), log=None):
     """Run one approved rule against `df` and return (df, stats).
     Assumes the rule has already been checked with validate_rule().
     `skip_values` lists placeholder texts (e.g. ["ERROR", "UNKNOWN"]) that the
-    rule must leave untouched and not count."""
+    rule must leave untouched and not count. If a changes.ChangeLog is passed
+    as `log`, each cell the rule changes is recorded."""
     handler = RULE_HANDLERS[rule["rule_type"]]
-    return handler(df, rule["column"], rule["params"], normalize_placeholders(skip_values))
+    before = df[rule["column"]].copy() if log is not None else None
+    df, stats = handler(df, rule["column"], rule["params"], normalize_placeholders(skip_values))
+    if log is not None:  # every cell the rule actually changed goes into the change log
+        log.record_series(rule["column"], before, df[rule["column"]], AI_RULE, rule["description"])
+    return df, stats
