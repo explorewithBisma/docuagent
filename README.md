@@ -183,11 +183,20 @@ A country/locale selector (Pakistan, US, UK, India, UAE) sets sensible
 defaults for phone region, date format, and currency symbol, which the AI
 can still override per column if the data clearly shows something else.
 
+**Keep the AI's suggestions:** as soon as suggestions come back - before you
+tick or apply anything - a **Download AI suggestions (.json)** button saves
+*all* of them (ticked or not) in the same recipe format, with every rule's
+`approved` flag set to `false`, plus the provider, model, locale, file name and
+date. Load that file later under "Load a saved recipe" and you get the same
+review screen with **nothing pre-ticked** - handy for reviewing on another day
+without paying for another AI call.
+
 **Recipes:** once you've approved a set of rules, you can save them as a
-reusable `.json` recipe file. Loading a recipe later skips the AI call
-entirely and goes straight to the same approve/reject review screen,
-pre-checked - so reusing a recipe on a new (similarly-shaped) file is fast
-but still never fully silent.
+reusable `.json` recipe file - the **Download Recipe (.json)** button appears
+in the AI panel right after "Apply Approved Rules" succeeds (and again at the
+bottom of the page). Loading a recipe later skips the AI call entirely and goes
+straight to the same approve/reject review screen, pre-checked - so reusing a
+recipe on a new (similarly-shaped) file is fast but still never fully silent.
 
 ## Setup (one time)
 

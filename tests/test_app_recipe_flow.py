@@ -100,8 +100,8 @@ print("Confirmed: report text includes the applied rule's outcome")
 
 # --- Confirm the "Download Recipe" button renders ---
 recipe_download_buttons = [b for b in at.download_button if b.label == "Download Recipe (.json)"]
-assert len(recipe_download_buttons) == 1
-print("Confirmed: 'Download Recipe (.json)' button is rendered")
+assert len(recipe_download_buttons) == 2      # one right after "Apply Approved Rules" in the AI panel, one at the bottom of the page
+print("Confirmed: 'Download Recipe (.json)' button is rendered (AI panel + bottom)")
 
 print()
 print("ALL RECIPE-FLOW END-TO-END TESTS PASSED")
