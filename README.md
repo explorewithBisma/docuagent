@@ -160,15 +160,28 @@ values to one standard value, ignoring case - for example gender
 unchanged and counted ("not in the map"), and every key in the map must really
 exist in the column (otherwise the rule is rejected with the missing keys
 listed). The AI is told to prefer `map_values` over `unify_casing` when a
-column has abbreviations or variants, not just casing differences. Note that
-the AI only sees up to 8 sample values per column, so it can only map the
-variants that appear in its samples - rare variants may need a hand-edited
-recipe. With "Mask sample values" on, the AI cannot suggest `map_values` at all
-(it never sees the real values).
+column has abbreviations or variants, not just casing differences. For a
+category column (see Privacy below) the AI is shown the *complete* list of
+distinct values with their counts, so rare variants such as `m` or `MALE` are
+visible and can be mapped; for other columns it only sees 8 random samples, so
+it can only map the variants that appear there. With "Mask sample values" on,
+the AI cannot suggest `map_values` at all (it never sees the real values).
 
-**Privacy:** the AI only ever receives column names, data types, and up to 8
-sample values per column — never your full file, never a full column, and
-never another column's data. You can also tick "Mask sample values" to
+**Privacy:** the AI never receives your full file. For each column it gets the
+name, data type, how many values are present/missing, and then **one of two
+things**:
+
+- **up to 8 random sample values** (the default), or
+- for a **text column with at most 30 distinct values** (gender, order status,
+  payment method, city ...), the **complete list of those distinct values with
+  how many times each occurs**, so rare variants are visible. This is never done
+  for anything that looks like an identifier or personal data - columns named
+  like an ID, code, phone, name, email, address or date of birth, columns whose
+  values look like phone numbers or email addresses, long free text, or columns
+  where nearly every value is different. Those only ever get the 8 samples.
+
+After suggestions come back, the AI panel tells you which columns had their
+full value list sent. You can also tick "Mask sample values" to
 replace every digit with `9`, every uppercase letter with `X` and every
 lowercase letter with `x` before sending them (e.g. `"0300-1234567"` becomes
 `"9999-9999999"`, `"Active"` becomes `"Xxxxxx"` and `"ACTIVE"` becomes
@@ -248,8 +261,9 @@ $env:GROQ_API_KEY = "your-key-here"
 So with both keys set, Groq wins unless you set `AI_PROVIDER=anthropic`.
 After suggestions come back, the page shows which provider and model
 answered. Both providers get the exact same prompt - only column names,
-data types, null counts and up to 8 (optionally masked) sample values per
-column - and both answers pass through the same validation, so a malformed
+data types, null counts and, per column, either up to 8 random sample values
+or (for small categories) the full list of distinct values with counts, all
+optionally masked - and both answers pass through the same validation, so a malformed
 or unsupported suggestion is discarded (and listed) instead of reaching the
 review screen.
 

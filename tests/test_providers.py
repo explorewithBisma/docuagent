@@ -134,8 +134,17 @@ prompt = prompts_seen["groq"]
 assert "0300-1000000" not in prompt and "Rs. 1,500/-" not in prompt          # real values never sent when masked
 assert "9999-9999999" in prompt and "Xx. 9,999/-" in prompt                  # masked shapes are
 for profile in profiles:
-    assert set(profile) == {"column", "dtype", "non_null_count", "null_count", "sample_values"}
-    assert len(profile["sample_values"]) <= ai_rules.SAMPLE_SIZE == 8
+    base_keys = {"column", "dtype", "non_null_count", "null_count"}
+    if "distinct_values" in profile:                                      # few distinct values: the complete list, with counts
+        assert set(profile) == base_keys | {"distinct_values"}
+        assert sum(count for _, count in profile["distinct_values"]) == profile["non_null_count"]
+        assert len(profile["distinct_values"]) <= ai_rules.MAX_DISTINCT_VALUES == 30
+    else:                                                                 # otherwise: up to 8 random samples
+        assert set(profile) == base_keys | {"sample_values"}
+        assert len(profile["sample_values"]) <= ai_rules.SAMPLE_SIZE == 8
+masked_lists = [p for p in profiles if "distinct_values" in p]
+assert {p["column"] for p in masked_lists} == {"Status", "Amount"} and "Phone" in {p["column"] for p in profiles if "sample_values" in p}
+assert all(not any(v in ("active", "Active", "ACTIVE", "inactive", "$20") for v, _ in p["distinct_values"]) for p in masked_lists)   # masked lists hold shapes only
 print("PASSED")
 
 print("=" * 70)

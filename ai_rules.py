@@ -21,12 +21,15 @@ GROQ_API_KEY) - never typed into the page itself. Which provider is used:
 import json
 import os
 import re
+from collections import Counter
+
 import pandas as pd
 import anthropic
 
 from rule_engine import RULE_HANDLERS, validate_rule
 from locales import LOCALES
 from quality import (
+    _name_words, has_identifier_name, is_phone_like,
     DEFAULT_PLACEHOLDERS, columns_with_inconsistent_casing, normalize_placeholders, real_values,
 )
 
@@ -42,6 +45,17 @@ GROQ_MODEL_NAME = "openai/gpt-oss-120b"  # Groq (a reasoning model; replaced the
 GROQ_MAX_COMPLETION_TOKENS = 16000
 
 SAMPLE_SIZE = 8  # how many sample values per column get sent to the AI
+
+# Columns with few distinct values (gender, order status, payment method, city ...) are sent as the COMPLETE list of
+# distinct values with their counts, so rare variants like "m" or "MALE" are visible. Never for anything that looks
+# like an identifier or personal data - those only ever get the usual 8 samples.
+MAX_DISTINCT_VALUES = 30
+MAX_LISTED_VALUE_LENGTH = 40     # longer text is free text, not a category
+PERSONAL_DATA_WORDS = {
+    "name", "firstname", "lastname", "surname", "fullname", "email", "mail", "address", "street", "dob", "birth",
+    "birthday", "birthdate", "ssn", "passport", "aadhaar", "aadhar", "cnic", "pan", "licence", "license", "iban",
+    "password", "token", "secret",
+}
 
 PROVIDERS = ("groq", "anthropic")
 PROVIDER_LABELS = {"groq": "Groq", "anthropic": "Anthropic"}
@@ -120,12 +134,42 @@ def mask_value(value) -> str:
     return "".join(masked_characters)
 
 
+def qualifies_for_value_list(column, series: pd.Series, real: pd.Series) -> bool:
+    """True if a column is a small set of categories that is safe to describe by
+    listing EVERY distinct value: text, at most 30 distinct real values, each
+    repeated on average at least twice (so it is not a list of unique labels),
+    short values, and nothing that looks like an identifier, a phone number, an
+    email address or other personal data - by its name or by its values."""
+    if series.dtype != object:
+        return False  # variants and typos only exist in text columns
+    if has_identifier_name(column) or _name_words(column) & PERSONAL_DATA_WORDS:
+        return False
+    distinct = real.nunique()
+    if distinct == 0 or distinct > MAX_DISTINCT_VALUES or len(real) < 2 * distinct:
+        return False
+    text = real.astype(str)
+    if text.str.len().max() > MAX_LISTED_VALUE_LENGTH:
+        return False
+    if text.str.contains("@").mean() >= 0.5 or is_phone_like(column, real):
+        return False
+    return True
+
+
+def full_value_columns(profiles: list) -> list:
+    """The columns whose complete list of distinct values (with counts) is being sent."""
+    return [profile["column"] for profile in profiles if "distinct_values" in profile]
+
+
 def build_column_profile(df: pd.DataFrame, mask: bool, placeholders=DEFAULT_PLACEHOLDERS) -> list:
     """Build the small, privacy-safe description of each column that gets
-    sent to the AI: its name, data type, how many values are missing, and a
-    handful of sample values (optionally masked). This is the *entire*
-    privacy boundary - nothing else about the data ever leaves the machine:
-    no full columns, no row counts beyond non-null/null, no other columns.
+    sent to the AI: its name, data type, how many values are missing, and then
+    EITHER up to 8 random sample values (optionally masked) OR - for a column
+    with at most 30 distinct values that is not an identifier or personal data
+    (see qualifies_for_value_list) - the complete list of its distinct values
+    with how often each occurs ("distinct_values": [[value, count], ...], masked
+    values merging their counts), so rare variants like "m" or "MALE" are
+    visible. This is the *entire* privacy boundary - nothing else about the
+    data ever leaves the machine: no full columns, no other columns.
 
     Placeholder text such as "ERROR" or "UNKNOWN" is junk, not data: it is
     never used as a sample, and it counts as missing, so the AI judges a
@@ -136,6 +180,20 @@ def build_column_profile(df: pd.DataFrame, mask: bool, placeholders=DEFAULT_PLAC
     for column in df.columns:
         series = df[column]
         real = real_values(series, placeholder_set)  # not blank, not a placeholder
+
+        if qualifies_for_value_list(column, series, real):
+            counts = Counter()
+            for value, number in real.value_counts().items():
+                counts[mask_value(value) if mask else str(value)] += int(number)
+            profiles.append({
+                "column": str(column),
+                "dtype": str(series.dtype),
+                "non_null_count": int(len(real)),
+                "null_count": int(len(series) - len(real)),
+                "distinct_values": [[value, number] for value, number in sorted(counts.items(), key=lambda item: (-item[1], item[0]))],
+            })
+            continue
+
         sample_count = min(SAMPLE_SIZE, len(real))
 
         if sample_count == 0:
@@ -202,13 +260,18 @@ def build_prompt(column_profiles: list, locale_code: str) -> str:
     profiles_json = json.dumps(column_profiles, indent=2)
 
     return f"""You are helping clean a spreadsheet. Based ONLY on the column
-profiles below (names, data types, and a few sample values), suggest
-cleaning rules for columns that would benefit from one.
+profiles below, suggest cleaning rules for columns that would benefit
+from one. Each profile has the column name, its data type, how many values
+are present / missing, and then EITHER "sample_values" (a few random values)
+OR - for a column with few distinct values - "distinct_values": the COMPLETE
+list of every distinct value with how many times it occurs, as
+[[value, count], ...]. With distinct_values you can see every variant that
+exists, including rare ones; with sample_values you only see some of them.
 
-The samples contain real values only: blanks and placeholders such as ERROR or
+The values shown are real values only: blanks and placeholders such as ERROR or
 UNKNOWN have already been removed, so never build a rule around them.
 
-Only suggest a rule when the sample values clearly show the kind of problem
+Only suggest a rule when the values shown clearly show the kind of problem
 it would fix - never suggest a rule "just in case". It is completely fine to
 suggest rules for only some columns, or none at all.
 
@@ -235,11 +298,12 @@ You may ONLY use these 5 rule types, with these exact params:
   abbreviations, synonyms, typos or casing variants (e.g. "m", "M", "male",
   "MALE" -> "Male"; "f", "female", "FEMALE" -> "Female"). PREFER map_values
   over unify_casing whenever the variants are more than just casing
-  differences. List every variant you can see in the samples, in lower case
+  differences. List every variant you can see in the profile (all of
+  distinct_values when the column has it, otherwise the samples), in lower case
   (matching ignores case), INCLUDING the standard value itself, and use only
-  values that really appear in the samples - never invent a key. Values you
-  do not list are left unchanged. Do not use it when the sample values look
-  masked (made only of X, x and 9 characters).
+  values that really appear in the profile - never invent a key. Values you
+  do not list are left unchanged. Do not use it when the values look masked
+  (made only of X, x and 9 characters).
 
 Give each rule a short, unique "id" (e.g. "rule_1"), the exact "column" name
 from the profiles below, and a one-sentence human-readable "description" of
@@ -463,4 +527,5 @@ def suggest_rules(column_profiles: list, locale_code: str, provider: str = None,
     rules, dropped = filter_valid_rules(
         raw_rules, [profile["column"] for profile in column_profiles], inconsistent_casing_columns, known_values
     )
-    return {"rules": rules, "dropped": dropped, "provider": provider, "model": model_for(provider)}
+    return {"rules": rules, "dropped": dropped, "provider": provider, "model": model_for(provider),
+            "full_value_columns": full_value_columns(column_profiles)}

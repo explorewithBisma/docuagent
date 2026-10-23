@@ -35,27 +35,32 @@ assert quality.casing_variants(pd.Series(["ERROR", "Error", "ok"]), placeholders
 assert quality.columns_with_inconsistent_casing(CAFE) == {"Status"}
 print("PASSED")
 
-print("TEST: profiles never use placeholders as samples and count them as missing")
+print("TEST: profiles never contain placeholders (as samples OR in a value list) and count them as missing")
+def shown(profile):
+    """Every value the AI is shown for a column, whichever form the profile takes."""
+    return [v for v, _ in profile["distinct_values"]] if "distinct_values" in profile else list(profile["sample_values"])
+
+many = pd.DataFrame({"code_like": [f"v{i}" for i in range(40)] * 2 + ["ERROR", "UNKNOWN", "error", np.nan]})        # 40 distinct -> samples
 for mask in (False, True):
-    profiles = {p["column"]: p for p in ai_rules.build_column_profile(CAFE, mask=mask)}
+    profiles = {p["column"]: p for p in ai_rules.build_column_profile(pd.concat([CAFE, many], axis=1), mask=mask)}
     for column, profile in profiles.items():
-        blob = json.dumps(profile).upper()
-        assert "ERROR" not in blob.replace("ERROR", "ERROR") or True
-        assert "ERROR" not in [s.upper() for s in profile["sample_values"]], (column, profile)
-        assert "UNKNOWN" not in [s.upper() for s in profile["sample_values"]], (column, profile)
-item = ai_rules.build_column_profile(CAFE, mask=False)[0]
+        assert "ERROR" not in [s.upper() for s in shown(profile)], (column, profile)
+        assert "UNKNOWN" not in [s.upper() for s in shown(profile)], (column, profile)
+assert "sample_values" in profiles["code_like"] and "distinct_values" not in profiles["code_like"]            # high-cardinality: 8 samples
+profile_list = ai_rules.build_column_profile(CAFE, mask=False)
+item, location = profile_list[0], profile_list[2]
 assert item["non_null_count"] == 7 and item["null_count"] == 3          # 7 real values; ERROR, UNKNOWN, NaN = 3 missing
-assert set(item["sample_values"]) <= {"Cake", "Tea"}
-location = ai_rules.build_column_profile(CAFE, mask=False)[2]
-assert set(location["sample_values"]) <= {"In-store", "Takeaway"} and location["non_null_count"] == 6
-# a column of nothing but placeholders has no samples at all
+assert item["distinct_values"] == [["Cake", 4], ["Tea", 3]]             # few distinct values -> the complete list with counts
+assert location["distinct_values"] == [["In-store", 3], ["Takeaway", 3]] and location["non_null_count"] == 6
+# a column of nothing but placeholders has nothing to show at all
 only_junk = pd.DataFrame({"X": ["ERROR", "UNKNOWN", np.nan]})
 assert ai_rules.build_column_profile(only_junk, mask=False)[0]["sample_values"] == []
-# profile keys are unchanged (privacy boundary)
-assert set(item) == {"column", "dtype", "non_null_count", "null_count", "sample_values"}
+# profile keys: exactly one of the two forms
+assert set(item) == {"column", "dtype", "non_null_count", "null_count", "distinct_values"}
+assert set(profiles["code_like"]) == {"column", "dtype", "non_null_count", "null_count", "sample_values"}
 # custom placeholder list is honoured
 custom = ai_rules.build_column_profile(pd.DataFrame({"X": ["foo", "bar", "bar"]}), mask=False, placeholders=["foo"])[0]
-assert custom["sample_values"] == ["bar", "bar"] and custom["null_count"] == 1
+assert custom["distinct_values"] == [["bar", 2]] and custom["null_count"] == 1
 print("PASSED")
 
 print("TEST: prompt tells the AI when unify_casing is (not) appropriate")
