@@ -85,6 +85,32 @@ class ChangeLog:
 
     def __init__(self):
         self.events = []
+        self.removed = []            # rows removed as duplicates / empty, with their original content
+        self.original_columns = []   # the column headers exactly as uploaded
+
+    def record_removed(self, original: pd.DataFrame, labels, reason: str, duplicate_of: dict = None) -> None:
+        """Remember rows that were removed: their row label (original position in the
+        uploaded file), why, and their full ORIGINAL content (before any cleaning).
+        `duplicate_of` maps a removed label to the label of the row that was kept."""
+        labels = list(labels)
+        if not labels:
+            return
+        contents = original.loc[labels].to_numpy(dtype=object).tolist()
+        for label, values in zip(labels, contents):
+            self.removed.append({"index": label, "reason": reason,
+                                 "duplicate_of": (duplicate_of or {}).get(label), "values": values})
+
+    def finalize_removed(self) -> list:
+        """The removed rows in file order: original_row (Excel row in the uploaded file, header =
+        row 1), a plain-English reason, and the original cell values."""
+        rows = []
+        for item in sorted(self.removed, key=lambda item: item["index"]):
+            if item["reason"] == "duplicate":
+                text = f"Duplicate of row {item['duplicate_of'] + 2}" if item["duplicate_of"] is not None else "Duplicate of an earlier row"
+            else:
+                text = "Fully empty row"
+            rows.append({"original_row": item["index"] + 2, "kind": item["reason"], "reason": text, "values": item["values"]})
+        return rows
 
     def add(self, index, column, old, new, reason, detail="", strict=False):
         """Record one cell change (ignored if the value did not really change)."""

@@ -99,6 +99,23 @@ def _fill_lines(stats: dict) -> list:
     return lines
 
 
+def _row_numbers(numbers: list, limit: int = 30) -> str:
+    shown = ", ".join(str(number) for number in numbers[:limit])
+    return shown + (f" ... and {len(numbers) - limit} more" if len(numbers) > limit else "")
+
+
+def _removed_lines(rows: list) -> list:
+    """Report lines naming the rows that were removed (row numbers as in the uploaded file)."""
+    lines = []
+    for kind, label in (("duplicate", "Removed duplicate rows"), ("empty", "Removed fully empty rows")):
+        numbers = [row["original_row"] for row in rows if row["kind"] == kind]
+        if numbers:
+            lines.append(f"{label} (row numbers in your file): {_row_numbers(numbers)}")
+    if lines:
+        lines.append("  Their full original content is on the 'Removed Rows' sheet of the Excel download.")
+    return lines
+
+
 def _format_rule_outcome_line(outcome: dict) -> str:
     """One line describing what an approved AI-suggested rule actually did."""
     rule = outcome["rule"]
@@ -109,7 +126,7 @@ def _format_rule_outcome_line(outcome: dict) -> str:
 
 
 def build_report_text(file_name: str, sheet_stats: dict, rule_outcomes_by_sheet: dict = None,
-                      quality_by_sheet: dict = None) -> str:
+                      quality_by_sheet: dict = None, removed_by_sheet: dict = None) -> str:
     """Build the plain-text version of the cleaning report (used for the
     downloadable .txt file). `rule_outcomes_by_sheet` is optional - when not
     given (or empty for a sheet), the report looks exactly like it did before
@@ -135,6 +152,7 @@ def build_report_text(file_name: str, sheet_stats: dict, rule_outcomes_by_sheet:
         lines.extend(_placeholder_lines(stats))
         lines.extend(_numeric_lines(stats))
         lines.extend(_fill_lines(stats))
+        lines.extend(_removed_lines((removed_by_sheet or {}).get(sheet_name, [])))
 
         if stats["header_renames"]:
             lines.append("Column headers renamed:")
@@ -305,6 +323,14 @@ def styled_preview(df: pd.DataFrame, records: list, only_changed: bool = False, 
         if number_format in _PYTHON_FORMATS:
             styler = styler.format(_PYTHON_FORMATS[number_format], subset=[column], na_rep="")
     return styler, len(positions), len(available)
+
+
+def removed_rows_dataframe(columns: list, rows: list) -> pd.DataFrame:
+    """The removed rows as a table: Original row, Reason, then every original column."""
+    names = ["Original row", "Reason"] + [str(column) for column in columns]
+    data = [[row["original_row"], row["reason"]] + ["" if (not isinstance(v, str) and pd.isna(v)) else v for v in row["values"]]
+            for row in rows]
+    return pd.DataFrame(data, columns=names)
 
 
 def changes_dataframe(records_by_sheet: dict) -> pd.DataFrame:

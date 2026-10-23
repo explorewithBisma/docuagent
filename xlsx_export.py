@@ -181,6 +181,11 @@ def _write_summary(worksheet, report: dict, records_by_sheet: dict, notes: list)
             ("Rows in the cleaned file", report["final_rows"].get(sheet_name)),
             ("Duplicate rows removed", stats.get("duplicates_removed")),
             ("Completely empty rows removed", stats.get("empty_rows_removed")),
+            *(
+                [(f"Full content of removed rows", f"see the '{report['removed_titles'][sheet_name]}' sheet "
+                                                  f"({report['removed_counts'][sheet_name]:,} rows)")]
+                if sheet_name in report.get("removed_titles", {}) else []
+            ),
             ("Completely empty columns removed", stats.get("empty_columns_removed")),
             ("Placeholders cleared to blank", (stats.get("placeholders") or {}).get("total")),
             ("Cells filled by exact calculation", sum(((stats.get("fills") or {}).get("calculated") or {}).values())),
@@ -289,13 +294,57 @@ def _write_change_log(worksheet, records_by_sheet: dict, multi_sheet: bool, note
 
 
 # ---------------------------------------------------------------------------
+# REMOVED ROWS SHEET
+# ---------------------------------------------------------------------------
+
+def _plain(value):
+    """A cell value safe to write: missing -> empty, numpy scalars -> Python numbers."""
+    if not isinstance(value, str) and is_blank(value):
+        return None
+    return value.item() if hasattr(value, "item") else value
+
+
+def _write_removed(worksheet, title: str, columns: list, rows: list, notes: list) -> None:
+    """Every row the cleaning removed, with its full ORIGINAL content, the row
+    number it had in the uploaded file, and why it was removed."""
+    headers = ["Original row", "Reason"] + [str(column) for column in columns]
+    for number, header in enumerate(headers, start=1):
+        worksheet.cell(row=1, column=number, value=header)
+    _style_header(worksheet, len(headers))
+
+    written = 0
+    for item in rows:
+        if written >= MAX_LOG_ROWS:
+            break
+        values = [item["original_row"], item["reason"]] + [_plain(value) for value in item["values"]]
+        for number, value in enumerate(values, start=1):
+            cell = worksheet.cell(row=written + 2, column=number, value=value)
+            cell.border = BORDER
+            cell.alignment = Alignment(horizontal="left", vertical="top")
+        written += 1
+
+    worksheet.freeze_panes = "C2"
+    worksheet.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{max(written + 1, 2)}"
+    worksheet.column_dimensions["A"].width = 14
+    worksheet.column_dimensions["B"].width = 22
+    for number, header in enumerate(headers[2:], start=3):
+        sample = [len(str(_plain(item["values"][number - 3]) or "")) for item in rows[:WIDTH_SAMPLE_ROWS]]
+        worksheet.column_dimensions[get_column_letter(number)].width = min(max(max(sample + [len(header)]) + 3, MIN_WIDTH), MAX_WIDTH)
+    if len(rows) > written:
+        notes.append(f"The '{title}' sheet shows the first {written:,} of {len(rows):,} removed rows.")
+
+
+# ---------------------------------------------------------------------------
 # THE WORKBOOK
 # ---------------------------------------------------------------------------
 
-def build_highlighted_workbook(sheets: dict, records_by_sheet: dict, report: dict = None) -> bytes:
+def build_highlighted_workbook(sheets: dict, records_by_sheet: dict, report: dict = None,
+                               removed_by_sheet: dict = None) -> bytes:
     """The user's sheets (same names, same order) with changed cells coloured
     and commented. If `report` is given, a "Cleaning Summary" and a "Change
-    Log" sheet are added AFTER them.
+    Log" sheet - plus a "Removed Rows" sheet when rows were removed - are
+    added AFTER them. removed_by_sheet: {sheet: {"columns": [...], "rows":
+    ChangeLog.finalize_removed()}}.
 
     records_by_sheet: {sheet: ChangeLog.finalize(...) records} (sheets that were not cleaned: omit).
     report: {"file_name", "sheet_stats", "quality_by_sheet", "original_rows", "final_rows", "generated"?}."""
@@ -319,12 +368,29 @@ def build_highlighted_workbook(sheets: dict, records_by_sheet: dict, report: dic
 
         if report is not None:
             workbook = writer.book
-            log_title = _unique_title("Change Log", workbook.sheetnames)
-            summary_title = _unique_title("Cleaning Summary", workbook.sheetnames + [log_title])
+            taken = list(workbook.sheetnames)
+            summary_title = _unique_title("Cleaning Summary", taken)
+            taken.append(summary_title)
+            log_title = _unique_title("Change Log", taken)
+            taken.append(log_title)
+
+            removed_sheets = {name: item for name, item in (removed_by_sheet or {}).items() if item["rows"]}
+            removed_titles = {}
+            for name in removed_sheets:
+                wanted = "Removed Rows" if len(removed_sheets) == 1 else f"Removed - {name}"[:31]
+                removed_titles[name] = _unique_title(wanted, taken)
+                taken.append(removed_titles[name])
+            report = {**report, "removed_titles": removed_titles,
+                      "removed_counts": {name: len(item["rows"]) for name, item in removed_sheets.items()}}
+
             summary_sheet = workbook.create_sheet(summary_title)
             log_sheet = workbook.create_sheet(log_title)
+            removed_worksheets = {name: workbook.create_sheet(title) for name, title in removed_titles.items()}
+
             multi = len(records_by_sheet) > 1  # name the sheet in each log row only when several sheets were cleaned
             _write_change_log(log_sheet, records_by_sheet, multi, notes)
+            for name, worksheet in removed_worksheets.items():
+                _write_removed(worksheet, removed_titles[name], removed_sheets[name]["columns"], removed_sheets[name]["rows"], notes)
             _write_summary(summary_sheet, report, records_by_sheet, notes)
 
     return buffer.getvalue()
@@ -351,4 +417,6 @@ def export_workbook(cleaned_sheets: dict, change_logs: dict, sheet_stats: dict, 
             "original_rows": original_rows,
             "final_rows": {name: len(df) for name, df in cleaned_sheets.items()},
         }
-    return build_highlighted_workbook(cleaned_sheets, records, report)
+    removed = {name: {"columns": log.original_columns, "rows": log.finalize_removed()}
+               for name, log in (change_logs or {}).items() if name in cleaned_sheets and log.removed}
+    return build_highlighted_workbook(cleaned_sheets, records, report, removed)

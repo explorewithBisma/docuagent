@@ -167,6 +167,21 @@ def remove_duplicate_rows(df: pd.DataFrame):
     return df[~is_duplicate], int(is_duplicate.sum())
 
 
+def first_occurrences(df: pd.DataFrame, labels) -> dict:
+    """For each (removed) duplicate row label, the label of the earlier row it
+    is a copy of. Uses the same equality as drop_duplicates (blank == blank).
+    Returns {} if the frame cannot be grouped (e.g. repeated column names)."""
+    try:
+        groups = df.groupby(list(df.columns), dropna=False, sort=False).ngroup()
+    except (ValueError, TypeError, KeyError):
+        return {}
+    first = {}
+    for label, group in zip(df.index, groups.to_numpy()):
+        first.setdefault(group, label)
+    lookup = dict(zip(df.index, groups.to_numpy()))
+    return {label: first[lookup[label]] for label in labels if label in lookup}
+
+
 def remove_empty_rows_and_columns(df: pd.DataFrame):
     """Drop any row or column where every single cell is empty.
     Returns the updated DataFrame, rows removed, and columns removed."""
@@ -193,6 +208,10 @@ def clean_dataframe_with_steps(df: pd.DataFrame, steps: dict, options: dict = No
     'ran but found nothing to change' (which would be 0)."""
     options = options or {}
     log = options.get("changes")  # optional changes.ChangeLog collecting every changed cell
+    original = None
+    if log is not None:
+        original = df.copy()  # untouched copy: removed rows are reported with their ORIGINAL content
+        log.original_columns = list(df.columns)
     stats = {
         "header_renames": [],
         "cells_trimmed": None,
@@ -239,13 +258,21 @@ def clean_dataframe_with_steps(df: pd.DataFrame, steps: dict, options: dict = No
     # Empty rows go BEFORE duplicates: otherwise a pile of blank rows looks like
     # "duplicates of each other" and the duplicate count is inflated.
     if steps["empty"]:
+        labels_before = df.index
         df, rows_removed, columns_removed = remove_empty_rows_and_columns(df)
         stats["empty_rows_removed"] = rows_removed
         stats["empty_columns_removed"] = columns_removed
+        if log is not None:
+            log.record_removed(original, labels_before.difference(df.index), "empty")
 
     if steps["duplicates"]:
+        before_duplicates = df
         df, duplicates_removed = remove_duplicate_rows(df)
         stats["duplicates_removed"] = duplicates_removed
+        if log is not None and duplicates_removed:
+            removed_labels = before_duplicates.index.difference(df.index)
+            log.record_removed(original, removed_labels, "duplicate",
+                               first_occurrences(before_duplicates, removed_labels))
 
     # Fill gaps last, only from relationships the user approved, and only on
     # the rows that survived deduplication / empty-row removal.

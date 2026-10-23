@@ -39,8 +39,8 @@ from derive import detect_relationships
 from io_utils import load_sheets, convert_to_download_bytes
 from xlsx_export import export_workbook
 from report import (
-    CHANGES_ROWS, build_report_text, changes_dataframe, legend_html, render_metric_cards, render_quality_panel,
-    render_summary_panel, styled_preview, summary_metrics, totals_by_reason,
+    CHANGES_ROWS, build_report_text, changes_dataframe, legend_html, removed_rows_dataframe, render_metric_cards,
+    render_quality_panel, render_summary_panel, styled_preview, summary_metrics, totals_by_reason,
 )
 from locales import LOCALES, DEFAULT_LOCALE
 from quality import DEFAULT_PLACEHOLDERS, columns_with_inconsistent_casing, parse_placeholder_text, profile_dataframe
@@ -131,6 +131,11 @@ if "rules_batch_id" not in st.session_state:
 def bump_data_version() -> None:
     """Call whenever the cleaned data changes, so cached change records are rebuilt."""
     st.session_state.data_version = (st.session_state.data_version or 0) + 1
+
+
+def removed_rows_by_sheet(change_logs) -> dict:
+    """{sheet: removed rows (original row number, reason, original content)} for the .txt report and the Changes tab."""
+    return {name: log.finalize_removed() for name, log in (change_logs or {}).items() if log.removed}
 
 
 def get_change_records() -> dict:
@@ -293,6 +298,7 @@ if uploaded_file is not None:
         st.session_state.report_text = build_report_text(
             uploaded_file.name, sheet_stats,
             quality_by_sheet=build_quality(cleaned_sheets, sheet_stats, st.session_state.quality_before, placeholder_list),
+            removed_by_sheet=removed_rows_by_sheet(change_logs),
         )
         # A fresh clean invalidates any AI suggestions from a previous run.
         st.session_state.suggested_rules_by_sheet = None
@@ -483,6 +489,7 @@ if st.session_state.cleaned_sheets is not None:
                         rule_outcomes_by_sheet,
                         build_quality(updated_sheets, st.session_state.sheet_stats, st.session_state.quality_before,
                                       placeholders_in_effect),
+                        removed_rows_by_sheet(st.session_state.change_logs),
                     )
                     bump_data_version()
                     st.success("Approved rules applied!")
@@ -524,6 +531,20 @@ if st.session_state.cleaned_sheets is not None:
         with changes_tab:
             st.subheader("Cleaning Summary")
             render_summary_panel(st.session_state.sheet_stats, st.session_state.rule_outcomes_by_sheet)
+
+            removed_rows = removed_rows_by_sheet(st.session_state.change_logs)
+            if removed_rows:
+                st.subheader("Removed rows")
+                st.caption("Rows taken out of the cleaned file, with their full original content. The Excel download "
+                           "has them on a \"Removed Rows\" sheet.")
+                for sheet_name, rows in removed_rows.items():
+                    if len(removed_rows) > 1:
+                        st.write(f"**Sheet: {sheet_name}**")
+                    table = removed_rows_dataframe(st.session_state.change_logs[sheet_name].original_columns, rows)
+                    st.dataframe(table.head(CHANGES_ROWS), hide_index=True)
+                    duplicates = sum(1 for row in rows if row["kind"] == "duplicate")
+                    st.caption(f"{duplicates:,} duplicate and {len(rows) - duplicates:,} fully empty rows removed"
+                               + (f" (showing the first {CHANGES_ROWS:,})" if len(rows) > CHANGES_ROWS else ""))
 
             st.subheader("Every changed cell")
             table = changes_dataframe(records_by_sheet)
