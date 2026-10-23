@@ -110,7 +110,7 @@ at.run()
 clean(at)
 wb = workbook_from(at)
 print(wb.sheetnames)
-assert wb.sheetnames == ["Customers", "Orders", "Notes", "Cleaning Summary", "Change Log"]
+assert wb.sheetnames == ["Customers", "Orders", "Notes", "Cleaning Summary", "Change Log", "Removed Rows"]   # Customers lost 3 rows, so the removed rows are listed - still after the user's sheets
 orders = wb["Orders"]
 original_orders = pd.read_excel(io.BytesIO(XLSX), sheet_name="Orders", dtype=str, keep_default_na=False)
 assert [orders.cell(row=1, column=c).value for c in range(1, 4)] == list(original_orders.columns)         # header text untouched

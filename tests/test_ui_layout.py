@@ -189,7 +189,7 @@ at.run()
 next(b for b in at.button if b.label == "Clean File").click()
 at.run()
 assert not at.exception, [e.value for e in at.exception]
-tables = [d.value for d in at.dataframe if "Reason" in d.value.columns]
+tables = [d.value for d in at.dataframe if "Old value" in d.value.columns]      # the change table (not the removed-rows table)
 assert tables and list(tables[0].columns)[0] == "Sheet"
 assert {"Sheet: Customers", "Sheet: Orders", "Sheet: Notes"} <= {m.value.strip("*") if False else m.value.replace("**", "") for m in at.markdown}
 print("PASSED")
