@@ -155,7 +155,7 @@ def reason_text(record: dict) -> str:
 def comment_text(record: dict) -> str:
     """The text of the cell comment: what the cell was, and why it changed."""
     old = record["old"]
-    if old == "" or (not isinstance(old, str) and is_blank(old)):
+    if (not isinstance(old, str) and is_blank(old)) or old == "":  # NA check first: pd.NA == "" raises
         was = "Was: (blank)"
     elif isinstance(old, str) and old != old.strip():
         was = f'Was: "{old}"'
