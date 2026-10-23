@@ -163,10 +163,10 @@ def render_quality_panel(quality_by_sheet: dict):
             left, right = st.columns(2)
             with left:
                 st.write("**Before cleaning**")
-                st.dataframe(before, hide_index=True, use_container_width=True)
+                st.dataframe(before, hide_index=True)
             with right:
                 st.write("**After cleaning**")
-                st.dataframe(after, hide_index=True, use_container_width=True)
+                st.dataframe(after, hide_index=True)
 
 
 def render_summary_panel(sheet_stats: dict, rule_outcomes_by_sheet: dict = None):
