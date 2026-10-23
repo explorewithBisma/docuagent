@@ -17,3 +17,4 @@ venv/
 
 # Local output
 *.log
+tests/fixtures/test_recipe.json
