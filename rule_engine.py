@@ -12,6 +12,10 @@ the same (data, stats) convention used throughout cleaning.py. `stats` is
 always {"converted": N, "failed": M} - how many cells were successfully
 changed, and how many looked like they should match but couldn't be parsed
 (those are left untouched rather than guessed at).
+
+Counting is the same for every rule: `converted` is the number of cells whose
+value actually changed, and `already_correct` the number of valid cells that
+needed no change. Blanks and placeholders are not counted at all.
 """
 
 import re
@@ -20,7 +24,7 @@ import phonenumbers
 
 from locales import LOCALES
 from changes import AI_RULE
-from quality import normalize_placeholders
+from quality import normalize_placeholders, parse_number
 
 
 def _is_skipped(value, skip_values) -> bool:
@@ -39,10 +43,11 @@ def apply_normalize_phone(df: pd.DataFrame, column: str, params: dict, skip_valu
     default region. Numbers that can't be parsed are left exactly as-is."""
     country = params.get("country", "PK")
     converted = 0
+    already_correct = 0
     failed = 0
 
     def normalize_one(value):
-        nonlocal converted, failed
+        nonlocal converted, already_correct, failed
         if not isinstance(value, str) or value.strip() == "" or _is_skipped(value, skip_values):
             return value
         try:
@@ -54,11 +59,15 @@ def apply_normalize_phone(df: pd.DataFrame, column: str, params: dict, skip_valu
             failed += 1
             return value
 
-        converted += 1
-        return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
+        formatted = phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
+        if formatted == value:
+            already_correct += 1
+        else:
+            converted += 1
+        return formatted
 
     df[column] = df[column].apply(normalize_one)
-    return df, {"converted": converted, "failed": failed}
+    return df, {"converted": converted, "already_correct": already_correct, "failed": failed}
 
 
 # ---------------------------------------------------------------------------
@@ -68,24 +77,27 @@ def apply_normalize_phone(df: pd.DataFrame, column: str, params: dict, skip_valu
 def apply_unify_casing(df: pd.DataFrame, column: str, params: dict, skip_values=frozenset()):
     """Make every real text value in `column` use the same capitalization style
     (e.g. "active"/"Active"/"ACTIVE" -> all "Active"). Missing cells and
-    placeholder text (e.g. "ERROR") are left alone, and only cells that
-    actually changed are counted as converted."""
+    placeholder text (e.g. "ERROR") are left alone. Cells that changed count
+    as converted, cells already in the right style as already correct."""
     style = params.get("style", "title")
     style_functions = {"title": str.title, "upper": str.upper, "lower": str.lower}
     change_case = style_functions.get(style, str.title)
     converted = 0
+    already_correct = 0
 
     def unify_one(value):
-        nonlocal converted
+        nonlocal converted, already_correct
         if not isinstance(value, str) or value.strip() == "" or _is_skipped(value, skip_values):
             return value
         new_value = change_case(value)
         if new_value != value:
             converted += 1
+        else:
+            already_correct += 1
         return new_value
 
     df[column] = df[column].apply(unify_one)
-    return df, {"converted": converted, "failed": 0}
+    return df, {"converted": converted, "already_correct": already_correct, "failed": 0}
 
 
 # ---------------------------------------------------------------------------
@@ -97,15 +109,17 @@ def apply_parse_date(df: pd.DataFrame, column: str, params: dict, skip_values=fr
     params['input_format'] is an optional strptime-style hint (e.g. "%d/%m/%Y");
     if left out, pandas guesses using params['day_first'] as a tie-breaker.
     params['output_format'] controls the final text (default: "%Y-%m-%d").
-    Values that can't be parsed as dates are left exactly as-is."""
+    Values that can't be parsed as dates are left exactly as-is (failed); dates
+    already written in the output format count as already correct."""
     input_format = params.get("input_format")
     output_format = params.get("output_format", "%Y-%m-%d")
     day_first = params.get("day_first", False)
     converted = 0
+    already_correct = 0
     failed = 0
 
     def parse_one(value):
-        nonlocal converted, failed
+        nonlocal converted, already_correct, failed
         if value is None or (isinstance(value, float) and pd.isna(value)):
             return value
         if isinstance(value, str) and (value.strip() == "" or _is_skipped(value, skip_values)):
@@ -123,11 +137,15 @@ def apply_parse_date(df: pd.DataFrame, column: str, params: dict, skip_values=fr
             failed += 1
             return value
 
-        converted += 1
-        return parsed.strftime(output_format)
+        formatted = parsed.strftime(output_format)
+        if isinstance(value, str) and formatted == value:
+            already_correct += 1
+        else:
+            converted += 1
+        return formatted
 
     df[column] = df[column].apply(parse_one)
-    return df, {"converted": converted, "failed": failed}
+    return df, {"converted": converted, "already_correct": already_correct, "failed": failed}
 
 
 # ---------------------------------------------------------------------------
@@ -138,13 +156,16 @@ def apply_strip_currency_to_number(df: pd.DataFrame, column: str, params: dict, 
     """Turn text like "$1,234.50" or "Rs 1234" into a plain number (1234.5),
     by taking the first number found in the text (commas removed).
     Values containing no number are treated as failures and left exactly
-    as-is."""
+    as-is. Text that is already just that number ("1500", "1,500", "20.50")
+    counts as already correct: it is written as a real number, but its value
+    does not change."""
     decimal_places = params.get("decimal_places", 2)
     converted = 0
+    already_correct = 0
     failed = 0
 
     def strip_one(value):
-        nonlocal converted, failed
+        nonlocal converted, already_correct, failed
         if not isinstance(value, str) or value.strip() == "" or _is_skipped(value, skip_values):
             return value
 
@@ -161,11 +182,14 @@ def apply_strip_currency_to_number(df: pd.DataFrame, column: str, params: dict, 
             failed += 1
             return value
 
-        converted += 1
+        if parse_number(value) == number:
+            already_correct += 1
+        else:
+            converted += 1
         return number
 
     df[column] = df[column].apply(strip_one)
-    return df, {"converted": converted, "failed": failed}
+    return df, {"converted": converted, "already_correct": already_correct, "failed": failed}
 
 
 # ---------------------------------------------------------------------------
@@ -180,13 +204,15 @@ def apply_map_values(df: pd.DataFrame, column: str, params: dict, skip_values=fr
     spaces: {"m": "Male", "male": "Male", "f": "Female"} turns m, M, male and
     MALE into "Male". Real values that are not in the mapping are left exactly
     as they are and counted as `unmapped`; blanks and placeholders are ignored.
-    `converted` counts only cells whose text actually changed."""
+    `converted` counts only cells whose text actually changed; a value that
+    is already the standard one counts as `already_correct`."""
     mapping = {key.strip().casefold(): target.strip() for key, target in params["mapping"].items()}
     converted = 0
+    already_correct = 0
     unmapped = 0
 
     def map_one(value):
-        nonlocal converted, unmapped
+        nonlocal converted, already_correct, unmapped
         if not isinstance(value, str) or value.strip() == "" or _is_skipped(value, skip_values):
             return value
         target = mapping.get(value.strip().casefold())
@@ -195,10 +221,12 @@ def apply_map_values(df: pd.DataFrame, column: str, params: dict, skip_values=fr
             return value
         if target != value:
             converted += 1
+        else:
+            already_correct += 1
         return target
 
     df[column] = df[column].apply(map_one)
-    return df, {"converted": converted, "failed": 0, "unmapped": unmapped}
+    return df, {"converted": converted, "already_correct": already_correct, "failed": 0, "unmapped": unmapped}
 
 
 # ---------------------------------------------------------------------------

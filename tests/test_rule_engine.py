@@ -106,5 +106,5 @@ with warnings.catch_warnings():
     df, stats = re_mod.apply_parse_date(df, "Date", {"day_first": True, "output_format": "%Y-%m-%d"})
 print(df["Date"].tolist())
 assert df["Date"].tolist() == ["2025-04-01", "2025-02-14", "2024-12-25", "2025-01-03", "2025-03-05", "2025-07-30"]
-assert stats == {"converted": 6, "failed": 0}
+assert stats == {"converted": 4, "already_correct": 2, "failed": 0}      # the two ISO dates were already in the output format
 print("PASSED")

@@ -41,7 +41,7 @@ values = ["m", "M", "male", "MALE", " Male ", "Male", "f", "F", "Female", "FEMAL
 out, stats = apply(values)
 print(out, stats)
 assert out == ["Male", "Male", "Male", "Male", "Male", "Male", "Female", "Female", "Female", "Female", "Female"]
-assert stats == {"converted": 9, "failed": 0, "unmapped": 0}           # "Male" and "Female" were already standard: not counted
+assert stats == {"converted": 9, "already_correct": 2, "failed": 0, "unmapped": 0}   # "Male" and "Female" were already standard: reported separately
 print("PASSED")
 
 print("TEST: values not in the map are left unchanged and COUNTED; blanks / placeholders / non-text are ignored")
@@ -49,7 +49,7 @@ out, stats = apply(["m", "Other", "other", "Prefer not to say", np.nan, "", "  "
 print(out, stats)
 assert out[:4] == ["Male", "Other", "other", "Prefer not to say"]
 assert pd.isna(out[4]) and out[5] == "" and out[6] == "  " and out[7] == "ERROR" and out[8] == 5 and out[9] == "Female"
-assert stats == {"converted": 2, "failed": 0, "unmapped": 3}
+assert stats == {"converted": 2, "already_correct": 0, "failed": 0, "unmapped": 3}
 _, stats_no_skip = apply(["ERROR"], skip=[])
 assert stats_no_skip["unmapped"] == 1                                    # without the skip list a placeholder is just another unmapped value
 print("PASSED")
@@ -135,9 +135,10 @@ assert ch.REASON_COLORS["ai_rule"] == "BDD7EE"
 print("PASSED")
 
 print("TEST: report wording")
-line = report._format_rule_outcome_line({"rule": RULE, "stats": {"converted": 4, "failed": 0, "unmapped": 7}})
-assert line.endswith("-> converted 4, not in the map (left unchanged) 7"), line
-assert report._format_rule_outcome_line({"rule": RULE, "stats": {"converted": 4, "failed": 1}}).endswith("converted 4, failed 1")
+line = report._format_rule_outcome_line({"rule": RULE, "stats": {"converted": 4, "already_correct": 9, "failed": 0, "unmapped": 7}})
+assert line.endswith("-> converted 4, already correct 9, not in the map (left unchanged) 7"), line
+assert report._format_rule_outcome_line({"rule": RULE, "stats": {"converted": 4, "already_correct": 9, "failed": 1}}).endswith(
+    "converted 4, already correct 9, failed 1")
 print("PASSED")
 
 print("TEST: through the app - suggest, review, approve, apply; keys checked; blue cells in the Excel")
@@ -173,7 +174,7 @@ cleaned = at.session_state["cleaned_sheets"]["Data"]
 print(cleaned["gender"].value_counts().to_dict())
 assert cleaned["gender"].value_counts().to_dict() == {"Male": 9, "Female": 9, "Other": 3}
 text = at.session_state["report_text"]
-assert "converted 15, not in the map (left unchanged) 3" in text, text
+assert "converted 15, already correct 3, not in the map (left unchanged) 3" in text, text
 s = at.session_state
 wb = openpyxl.load_workbook(io.BytesIO(export_workbook(s["cleaned_sheets"], s["change_logs"], s["sheet_stats"], s["quality_before"],
                                                        s["placeholder_list"], s["original_filename"], s["original_rows"], True)))

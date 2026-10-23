@@ -141,10 +141,12 @@ def _removed_lines(rows: list) -> list:
 
 
 def _outcome_stats_text(stats: dict) -> str:
-    """'converted 5, failed 1' - or, for value mapping, how many values were not in the map."""
+    """'converted 5, already correct 90, failed 1' - or, for value mapping, how many values were not in the map.
+    converted = cells whose value really changed; already correct = valid cells that needed no change."""
+    text = f"converted {stats['converted']}, already correct {stats.get('already_correct', 0)}"
     if "unmapped" in stats:
-        return f"converted {stats['converted']}, not in the map (left unchanged) {stats['unmapped']}"
-    return f"converted {stats['converted']}, failed {stats['failed']}"
+        return text + f", not in the map (left unchanged) {stats['unmapped']}"
+    return text + f", failed {stats['failed']}"
 
 
 def _format_rule_outcome_line(outcome: dict) -> str:

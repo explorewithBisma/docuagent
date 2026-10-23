@@ -79,26 +79,26 @@ print(out["S"].tolist(), stats)
 assert out["S"].tolist()[:2] == ["Active", "Active"]
 assert out["S"].tolist()[2] == "ERROR" and out["S"].tolist()[3] == "unknown"       # placeholders untouched
 assert pd.isna(out["S"].iloc[4]) and out["S"].iloc[5] == "" and out["S"].iloc[7] == 5
-assert stats == {"converted": 1, "failed": 0}                                        # only "active" changed; "Active"/"Cash" unchanged
+assert stats == {"converted": 1, "already_correct": 2, "failed": 0}                  # "active" changed; "Active" and "Cash" were already right
 # without a skip list, placeholders WOULD be re-cased (this is the bug we are guarding against)
 _, unguarded = rule_engine.apply_unify_casing(frame.copy(), "S", {"style": "title"})
 assert unguarded["converted"] == 3
 # the dispatcher accepts a plain list
 _, via_rule = rule_engine.apply_rule(frame.copy(), {"id": "r", "column": "S", "rule_type": "unify_casing", "params": {"style": "title"}, "description": "d"},
                                      skip_values=["error", "UNKNOWN"])
-assert via_rule == {"converted": 1, "failed": 0}
+assert via_rule == {"converted": 1, "already_correct": 2, "failed": 0}
 print("PASSED")
 
 print("TEST: other rules don't count placeholders/blank text as failures")
 phones = pd.DataFrame({"P": ["0300-1234567", "ERROR", "UNKNOWN", "", "garbage"]})
 _, st = rule_engine.apply_normalize_phone(phones.copy(), "P", {"country": "PK"}, frozenset({"ERROR", "UNKNOWN"}))
-assert st == {"converted": 1, "failed": 1}                                           # only "garbage" fails
+assert st == {"converted": 1, "already_correct": 0, "failed": 1}                     # only "garbage" fails
 dates = pd.DataFrame({"D": ["2025-01-02", "ERROR", "", "nope"]})
 _, st = rule_engine.apply_parse_date(dates.copy(), "D", {"output_format": "%Y-%m-%d"}, frozenset({"ERROR"}))
-assert st == {"converted": 1, "failed": 1}
+assert st == {"converted": 0, "already_correct": 1, "failed": 1}                     # the ISO date needed no change; only "nope" fails
 money = pd.DataFrame({"M": ["$5", "UNKNOWN", "", "free"]})
 _, st = rule_engine.apply_strip_currency_to_number(money.copy(), "M", {}, frozenset({"UNKNOWN"}))
-assert st == {"converted": 1, "failed": 1}
+assert st == {"converted": 1, "already_correct": 0, "failed": 1}
 print("PASSED")
 
 print("TEST: the shared gate drops unify_casing for consistent columns (the cafe incident)")
