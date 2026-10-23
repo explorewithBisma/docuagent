@@ -158,10 +158,13 @@ def convert_numeric_columns(df: pd.DataFrame, placeholders=DEFAULT_PLACEHOLDERS)
 
 
 def remove_duplicate_rows(df: pd.DataFrame):
-    """Drop rows that are exact duplicates of an earlier row.
+    """Drop rows that are exact duplicates of an earlier row. Fully empty rows
+    are NOT counted as duplicates of each other - they are the empty-row step's
+    business - so this count is only ever real, repeated data.
     Returns the updated DataFrame and how many duplicate rows were removed."""
-    duplicate_count = int(df.duplicated().sum())
-    return df.drop_duplicates(), duplicate_count
+    has_data = ~df.isna().all(axis=1)
+    is_duplicate = df.duplicated() & has_data
+    return df[~is_duplicate], int(is_duplicate.sum())
 
 
 def remove_empty_rows_and_columns(df: pd.DataFrame):
@@ -178,7 +181,7 @@ def remove_empty_rows_and_columns(df: pd.DataFrame):
 
 def clean_dataframe_with_steps(df: pd.DataFrame, steps: dict, options: dict = None):
     """Run only the cleaning steps the user left turned on, in a fixed,
-    sensible order: headers -> trim -> placeholders -> numbers -> duplicates -> empty -> fills.
+    sensible order: headers -> trim -> placeholders -> numbers -> empty -> duplicates -> fills.
     'steps' is a dict like {"headers": True, "trim": True, ...}; steps that
     aren't in the dict are not run. 'options' carries settings such as the
     placeholder list and the approved relationships to fill from:
@@ -209,7 +212,7 @@ def clean_dataframe_with_steps(df: pd.DataFrame, steps: dict, options: dict = No
         if log is not None:
             log.record_diff(before, df, TRIMMED, strict=True)
 
-    # Placeholders come before duplicates/empty-row removal so that rows which
+    # Placeholders come before empty-row/duplicate removal so that rows which
     # only differed by a placeholder ("ERROR" vs blank) are recognised as the
     # same, and rows made only of placeholders count as empty.
     if "placeholders" in steps:
@@ -233,14 +236,16 @@ def clean_dataframe_with_steps(df: pd.DataFrame, steps: dict, options: dict = No
                 log.record_diff(before, df, NUMERIC, detail="thousands separator removed", strict=True,
                                 where=lambda old, new: isinstance(old, str) and "," in old)
 
-    if steps["duplicates"]:
-        df, duplicates_removed = remove_duplicate_rows(df)
-        stats["duplicates_removed"] = duplicates_removed
-
+    # Empty rows go BEFORE duplicates: otherwise a pile of blank rows looks like
+    # "duplicates of each other" and the duplicate count is inflated.
     if steps["empty"]:
         df, rows_removed, columns_removed = remove_empty_rows_and_columns(df)
         stats["empty_rows_removed"] = rows_removed
         stats["empty_columns_removed"] = columns_removed
+
+    if steps["duplicates"]:
+        df, duplicates_removed = remove_duplicate_rows(df)
+        stats["duplicates_removed"] = duplicates_removed
 
     # Fill gaps last, only from relationships the user approved, and only on
     # the rows that survived deduplication / empty-row removal.

@@ -47,8 +47,8 @@ steps = {"headers": True, "trim": True, "duplicates": True, "empty": True, "plac
 cleaned, stats = cleaning.clean_dataframe_with_steps(df.copy(), steps, {"placeholders": ["ERROR", "UNKNOWN"]})
 print(cleaned.to_string()); print(stats["placeholders"], stats["duplicates_removed"], stats["empty_rows_removed"])
 assert stats["placeholders"]["total"] == 5
-assert stats["duplicates_removed"] == 2          # row1 duplicates row0 once ERROR == blank ; row3 duplicates row2
-assert stats["empty_rows_removed"] == 1          # the all-placeholder row
+assert stats["duplicates_removed"] == 1          # row1 duplicates row0 once ERROR == blank
+assert stats["empty_rows_removed"] == 2          # rows 2 and 3 are all-placeholder -> empty (they are not "duplicates" of each other)
 assert cleaned["A"].tolist() == ["x", "y"]
 # without the step, nothing changes (and old callers that omit the key still work)
 _, stats_off = cleaning.clean_dataframe_with_steps(df.copy(), {**steps, "placeholders": False})

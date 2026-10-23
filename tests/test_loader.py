@@ -61,7 +61,7 @@ with open(FIXTURES / "messy_multi_sheet.xlsx", "rb") as f:
 assert list(book) == ["Customers", "Orders", "Notes"]
 customers, cs = clean_dataframe_with_steps(book["Customers"], STEPS)
 assert customers["Name"].tolist() == ["John Smith", "Jane Doe", "Bob Johnson"]
-assert (cs["duplicates_removed"], cs["empty_rows_removed"], cs["empty_columns_removed"], cs["cells_trimmed"]) == (2, 1, 1, 5)
+assert (cs["duplicates_removed"], cs["empty_rows_removed"], cs["empty_columns_removed"], cs["cells_trimmed"]) == (1, 2, 1, 5)   # 1 real duplicate + 2 empty rows (blank and spaces-only); the old (2, 1) counted an empty row as a duplicate
 orders, os_ = clean_dataframe_with_steps(book["Orders"], STEPS)
 assert os_["duplicates_removed"] == 1 and orders["Customer"].tolist() == ["John Smith", "Jane Doe", "Bob Johnson"]
 notes, ns = clean_dataframe_with_steps(book["Notes"], STEPS)
