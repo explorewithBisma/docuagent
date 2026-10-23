@@ -14,6 +14,21 @@ def format_stat(value) -> str:
     return "skipped (step turned off)" if value is None else str(value)
 
 
+def _placeholder_lines(stats: dict) -> list:
+    """Report lines for the placeholder step (empty list if the step was not
+    part of this run at all, e.g. stats from before the step existed)."""
+    if "placeholders" not in stats:
+        return []
+    info = stats["placeholders"]
+    if info is None:
+        return ["Placeholders converted to missing: skipped (step turned off)"]
+
+    lines = [f"Placeholders converted to missing: {info['total']}"]
+    for column, counts in info["by_column"].items():
+        lines.append(f"  {column}: " + ", ".join(f"{name} {count}" for name, count in counts.items()))
+    return lines
+
+
 def _format_rule_outcome_line(outcome: dict) -> str:
     """One line describing what an approved AI-suggested rule actually did."""
     rule = outcome["rule"]
@@ -46,6 +61,7 @@ def build_report_text(file_name: str, sheet_stats: dict, rule_outcomes_by_sheet:
         lines.append(f"Fully empty rows removed: {format_stat(stats['empty_rows_removed'])}")
         lines.append(f"Fully empty columns removed: {format_stat(stats['empty_columns_removed'])}")
         lines.append(f"Text cells trimmed: {format_stat(stats['cells_trimmed'])}")
+        lines.extend(_placeholder_lines(stats))
 
         if stats["header_renames"]:
             lines.append("Column headers renamed:")
@@ -83,6 +99,9 @@ def render_summary_panel(sheet_stats: dict, rule_outcomes_by_sheet: dict = None)
             st.write(f"- Fully empty rows removed: {format_stat(stats['empty_rows_removed'])}")
             st.write(f"- Fully empty columns removed: {format_stat(stats['empty_columns_removed'])}")
             st.write(f"- Text cells trimmed: {format_stat(stats['cells_trimmed'])}")
+            for line in _placeholder_lines(stats):
+                st.write(("- " + line) if not line.startswith("  ") else ("&nbsp;&nbsp;&nbsp;&nbsp;" + line.strip()),
+                         unsafe_allow_html=True)
 
             if stats["header_renames"]:
                 st.write("- Column headers renamed:")

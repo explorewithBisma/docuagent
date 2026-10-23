@@ -36,6 +36,7 @@ from cleaning import clean_dataframe_with_steps
 from io_utils import load_sheets, convert_to_download_bytes
 from report import build_report_text, render_summary_panel
 from locales import LOCALES, DEFAULT_LOCALE
+from quality import DEFAULT_PLACEHOLDERS, parse_placeholder_text
 import ai_rules
 import rule_engine
 import recipes
@@ -80,7 +81,7 @@ uploaded_file = st.file_uploader("Upload your .xlsx or .csv file", type=["xlsx",
 # soon as you clicked anything else.
 SESSION_KEYS = (
     "cleaned_sheets", "sheet_stats", "report_text", "original_filename", "is_csv",
-    "suggested_rules_by_sheet", "rule_outcomes_by_sheet", "suggestion_info",
+    "suggested_rules_by_sheet", "rule_outcomes_by_sheet", "suggestion_info", "placeholder_list",
 )
 for key in SESSION_KEYS:
     if key not in st.session_state:
@@ -147,7 +148,28 @@ if uploaded_file is not None:
         value=True,
         help="Removes rows/columns where every single cell is empty.",
     )
-    steps = {"headers": do_headers, "trim": do_trim, "duplicates": do_duplicates, "empty": do_empty}
+
+    with st.expander("Advanced cleaning"):
+        do_placeholders = st.checkbox(
+            "Convert placeholder text (ERROR, UNKNOWN, N/A ...) to missing values",
+            value=True,
+            help="Cells that contain only a placeholder word become truly empty, so they are counted, "
+                 "can be filled in later, and no longer pollute the data. Remove a word from the list "
+                 "if it is a legitimate value in your data (e.g. 'None' or 'NA' as a category).",
+        )
+        placeholder_text = st.text_area(
+            "Placeholder values (one per line or comma-separated, case is ignored)",
+            value="\n".join(DEFAULT_PLACEHOLDERS),
+            height=190,
+            help="A cell is converted only if the whole cell equals one of these.",
+        )
+
+    steps = {
+        "headers": do_headers, "trim": do_trim, "duplicates": do_duplicates, "empty": do_empty,
+        "placeholders": do_placeholders,
+    }
+    placeholder_list = parse_placeholder_text(placeholder_text)
+    options = {"placeholders": placeholder_list}
 
     # --- "Clean File" button ---
     if st.button("Clean File"):
@@ -156,7 +178,7 @@ if uploaded_file is not None:
 
         for name, original_df in sheets.items():
             if name in sheets_to_clean:
-                cleaned_df, stats = clean_dataframe_with_steps(original_df.copy(), steps)
+                cleaned_df, stats = clean_dataframe_with_steps(original_df.copy(), steps, options)
                 sheet_stats[name] = {"cleaned": True, "stats": stats}
             else:
                 # Not selected for cleaning - keep this sheet exactly as uploaded.
@@ -168,6 +190,7 @@ if uploaded_file is not None:
         st.session_state.sheet_stats = sheet_stats
         st.session_state.is_csv = is_csv
         st.session_state.original_filename = uploaded_file.name
+        st.session_state.placeholder_list = placeholder_list  # also used to keep placeholders out of the AI samples
         st.session_state.report_text = build_report_text(uploaded_file.name, sheet_stats)
         # A fresh clean invalidates any AI suggestions from a previous run.
         st.session_state.suggested_rules_by_sheet = None
