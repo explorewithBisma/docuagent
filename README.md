@@ -51,12 +51,38 @@ Order of steps: headers → trim → placeholders → numbers → duplicates →
 rows/columns → fills. Cells that are genuinely unknowable (e.g. a missing
 Payment Method) stay empty rather than being invented.
 
-### Nicer Excel downloads
+### See exactly what changed: the highlighted Excel file
 
-`.xlsx` downloads get a bold, frozen header row, columns sized to their
-content, and phone-like columns stored as **text** so leading zeros and `+`
-signs survive (Excel would otherwise turn `0300-1234567` into a number). CSV
-downloads are unchanged.
+Every cell the cleaning changes is recorded (row, column, old value, new
+value, reason), in memory only. The Excel download shows it:
+
+| Color | Meaning |
+|---|---|
+| Green | calculated exactly from other values in the row |
+| Yellow | inferred from a lookup pattern in your file |
+| Grey | placeholder (e.g. `ERROR`) cleared to blank |
+| Light blue | changed by an approved AI rule |
+
+Hover over any changed cell for a note, e.g. `Was: ERROR` or
+`Calculated exactly: Quantity 2 x Price Per Unit 3.0`. (Trimmed cells get a
+note but no color.) The sheet also has a bold header with a light background,
+thin borders, a frozen header row, an AutoFilter, columns sized to their
+content, whole numbers without decimals, money columns with 2 decimals, and
+phone-like columns stored as **text** so leading zeros and `+` signs survive.
+
+A checkbox (on by default) adds two sheets at the **end** of the workbook -
+your own sheets are never changed or reordered:
+
+- **Cleaning Summary** - file name, date, rows before/after, what each step
+  did, a per-column before/after quality table, totals by change type, and a
+  color legend.
+- **Change Log** - one filterable row per changed cell (Row, Column, Old
+  value, New value, Reason). Capped at 50,000 rows; the summary says so if
+  that happens. Cell comments are capped at 20,000 (the colors are not).
+
+**CSV uploads:** the plain CSV download stays as it was, and a second button,
+**Download as Excel (with highlights)**, gives the annotated workbook (CSV
+files can't store colors or comments).
 
 ## Multi-sheet Excel files
 
@@ -68,11 +94,17 @@ was, never dropped.
 
 ## Cleaning summary report
 
-After clicking "Clean File", the page shows a summary of exactly what
-changed per sheet: how many duplicate rows, empty rows, and empty columns
-were removed, how many cells were trimmed, and which column headers were
-renamed (old name → new name). The same summary can be downloaded as a
-`.txt` report alongside the cleaned file.
+After clicking "Clean File", the page shows four summary cards (rows,
+placeholders removed, cells filled, missing cells before → after) and three
+tabs:
+
+- **Preview** - the cleaned data with changed cells colored exactly as in the
+  Excel file (toggle "Show only rows with changes").
+- **Data Quality** - the before/after table for every column.
+- **Changes** - what each step did (duplicates, empty rows, headers renamed ...)
+  and a filterable list of every changed cell.
+
+The same summary can be downloaded as a `.txt` report alongside the cleaned file.
 
 ## AI-suggested cleaning rules (optional)
 
@@ -258,9 +290,11 @@ To stop the app, go back to the terminal and press `Ctrl+C`.
 4. (Optional) Pick a country/locale, then click **"Suggest Cleaning Rules"**
    - or load a previously saved recipe instead. Review each suggested rule
    and tick the ones you approve, then click **"Apply Approved Rules"**.
-5. Review the cleaning summary, then click **"Download Cleaned File"**,
-   **"Download Cleaning Report (.txt)"**, and/or **"Download Recipe (.json)"**
-   to save your approved rules for reuse next time.
+5. Review the cards and the Preview / Data Quality / Changes tabs, then click
+   **"Download Cleaned File"** (for an Excel upload this is the highlighted
+   workbook; for a CSV upload also try **"Download as Excel (with
+   highlights)"**), **"Download Cleaning Report (.txt)"**, and/or **"Download
+   Recipe (.json)"** to save your approved rules for reuse next time.
 
 ## Project structure
 
@@ -269,8 +303,10 @@ app.py          - the page itself (UI only)
 cleaning.py     - the deterministic cleaning steps (headers, trim, placeholders, numbers, duplicates, empty, fills)
 quality.py      - shared helpers: placeholder matching, number parsing, phone detection, before/after profile
 derive.py       - finding relationships between columns and filling gaps only when exactly derivable
-io_utils.py     - loading files / building the downloadable bytes (incl. XLSX polish)
-report.py       - building the on-page summary, quality tables and the .txt report
+changes.py      - cell-level change tracking (row, column, old, new, reason), in memory only
+xlsx_export.py  - the highlighted Excel workbook: colors, comments, Cleaning Summary and Change Log sheets
+io_utils.py     - loading files / building the plain CSV / Excel bytes
+report.py       - the on-page cards, color-coded preview, change table, quality tables and the .txt report
 locales.py      - country/locale defaults (phone region, date, currency)
 rule_engine.py  - the 4 AI-suggestable rule types, executed locally with pandas
 ai_rules.py     - talks to Groq or Anthropic to SUGGEST rules (never runs them)
