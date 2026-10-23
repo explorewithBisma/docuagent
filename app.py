@@ -36,6 +36,7 @@ import streamlit as st  # the web UI framework
 from changes import REASON_LABELS, ChangeLog
 from cleaning import clean_dataframe_with_steps
 from derive import detect_relationships
+from flags import find_flags, flag_counts, merge_flag_records
 from io_utils import load_sheets, convert_to_download_bytes
 from xlsx_export import export_workbook
 from report import (
@@ -61,6 +62,12 @@ def detect_for_sheet(df, steps, placeholders):
 
 
 @st.cache_data(show_spinner=False)
+def cached_flags(df, placeholders):
+    """Implausible-value flags for a sheet (cached for the same reason as the profile)."""
+    return find_flags(df, list(placeholders))
+
+
+@st.cache_data(show_spinner=False)
 def cached_profile(df, placeholders):
     """Per-column data-quality profile (cached - recomputing it on every click would be wasteful)."""
     return profile_dataframe(df, list(placeholders))
@@ -69,10 +76,17 @@ def cached_profile(df, placeholders):
 def build_quality(cleaned_sheets: dict, sheet_stats: dict, quality_before: dict, placeholders) -> dict:
     """Before/after quality tables for every sheet that was cleaned. 'After' is
     measured on the data as it is right now, so it includes any AI rules applied."""
-    return {
+    quality = {
         name: {"before": quality_before[name], "after": cached_profile(cleaned_sheets[name], tuple(placeholders))}
         for name, info in sheet_stats.items() if info["cleaned"] and name in quality_before
     }
+    if st.session_state.flagging_enabled:  # add the per-column count of flagged (implausible) values
+        for name, item in quality.items():
+            result = cached_flags(cleaned_sheets[name], tuple(placeholders))
+            item["flagged_before"] = (st.session_state.flags_before or {}).get(name, {})
+            item["flagged_after"] = flag_counts(result)
+            item["flag_skipped"] = result["skipped_statistical"]
+    return quality
 
 
 def collect_unique_approved_rules(suggested_rules_by_sheet: dict) -> list:
@@ -115,7 +129,7 @@ uploaded_file = st.file_uploader("Upload your .xlsx or .csv file", type=["xlsx",
 SESSION_KEYS = (
     "cleaned_sheets", "sheet_stats", "report_text", "original_filename", "is_csv",
     "suggested_rules_by_sheet", "rule_outcomes_by_sheet", "suggestion_info", "placeholder_list", "quality_before",
-    "change_logs", "original_rows", "data_version", "records_cache",
+    "change_logs", "original_rows", "data_version", "records_cache", "flagging_enabled", "flags_before",
 )
 for key in SESSION_KEYS:
     if key not in st.session_state:
@@ -147,11 +161,14 @@ def get_change_records() -> dict:
     cache = st.session_state.records_cache
     if not cache or cache["version"] != version:
         cleaned = st.session_state.cleaned_sheets
-        cache = {
-            "version": version,
-            "records": {name: log.finalize(cleaned[name]) for name, log in (st.session_state.change_logs or {}).items()
-                        if name in cleaned},
-        }
+        placeholders = tuple(st.session_state.placeholder_list if st.session_state.placeholder_list is not None
+                             else DEFAULT_PLACEHOLDERS)
+        records = {name: log.finalize(cleaned[name]) for name, log in (st.session_state.change_logs or {}).items()
+                   if name in cleaned}
+        if st.session_state.flagging_enabled:  # implausible values join the records: flagged, never changed
+            records = {name: merge_flag_records(rows, cached_flags(cleaned[name], placeholders), list(cleaned[name].columns))
+                       for name, rows in records.items()}
+        cache = {"version": version, "records": records}
         st.session_state.records_cache = cache
     return cache["records"]
 
@@ -225,6 +242,13 @@ if uploaded_file is not None:
                     help="A column becomes numeric when at least 90% of its values are plain numbers. IDs, codes, "
                          "zip codes and phone numbers (including anything with leading zeros) are never converted.",
                 )
+                do_flags = st.checkbox(
+                    "Flag suspicious values (they are never changed)",
+                    value=True,
+                    help="Marks numbers that look wrong - negative ages or quantities, codes like 999, ages under 10 "
+                         "or over 100, and values far outside the usual range - with a red border and a note. "
+                         "Nothing is deleted or altered; turn this off to skip the check.",
+                )
                 placeholder_text = st.text_area(
                     "Placeholder values (one per line or comma-separated, case is ignored)",
                     value="\n".join(DEFAULT_PLACEHOLDERS),
@@ -291,6 +315,11 @@ if uploaded_file is not None:
         st.session_state.sheet_stats = sheet_stats
         st.session_state.change_logs = change_logs
         st.session_state.original_rows = {name: len(sheets[name]) for name in sheets_to_clean}
+        st.session_state.flagging_enabled = do_flags
+        st.session_state.flags_before = (
+            {name: flag_counts(cached_flags(sheets[name], tuple(placeholder_list))) for name in sheets_to_clean}
+            if do_flags else None
+        )
         st.session_state.is_csv = is_csv
         st.session_state.original_filename = uploaded_file.name
         st.session_state.placeholder_list = placeholder_list  # also used to keep placeholders out of the AI samples
@@ -604,7 +633,7 @@ if st.session_state.cleaned_sheets is not None:
     build_excel = partial(
         export_workbook, cleaned_sheets, st.session_state.change_logs, st.session_state.sheet_stats,
         st.session_state.quality_before, placeholders_in_effect, st.session_state.original_filename,
-        st.session_state.original_rows, include_report,
+        st.session_state.original_rows, include_report, bool(st.session_state.flagging_enabled), st.session_state.flags_before,
     )
     excel_data = build_excel if "callable" in (st.download_button.__doc__ or "") else build_excel()
 

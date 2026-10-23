@@ -17,8 +17,10 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from changes import (
-    COLOR_MEANINGS, REASON_COLORS, REASON_LABELS, REASON_ORDER, comment_text, reason_text, summarize,
+    COLOR_MEANINGS, FLAG_BORDER_COLOR, FLAG_FILL_COLOR, FLAG_MEANING, FLAGGED, REASON_COLORS, REASON_LABELS, REASON_ORDER,
+    comment_text, reason_text, summarize,
 )
+from flags import find_flags, flag_counts, merge_flag_records
 from io_utils import MAX_WIDTH, MIN_WIDTH, WIDTH_SAMPLE_ROWS, _as_phone_text
 from quality import _name_words, is_blank, is_phone_like, profile_dataframe
 
@@ -30,6 +32,8 @@ HEADER_FILL = PatternFill("solid", fgColor="E8EEF7")
 SECTION_FILL = PatternFill("solid", fgColor="F2F2F2")
 THIN = Side(style="thin", color="BFBFBF")
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
+FLAG_SIDE = Side(style="medium", color=FLAG_BORDER_COLOR)
+FLAG_BORDER = Border(left=FLAG_SIDE, right=FLAG_SIDE, top=FLAG_SIDE, bottom=FLAG_SIDE)
 
 _MONEY_WORDS = {"price", "amount", "cost", "total", "fee", "salary", "revenue", "sales", "balance", "paid",
                 "payment", "spent", "charge", "tax", "income", "profit", "wage", "fare"}
@@ -105,18 +109,29 @@ def _style_data_sheet(worksheet, df: pd.DataFrame, text_columns: list, records: 
     _fit_widths(worksheet, df)
 
     column_number = {column: number for number, column in enumerate(df.columns, start=1)}
+    notes = {}  # (row, column) -> comment lines; a cell can have a change AND a flag
     for record in records:
         cell = worksheet.cell(row=record["row"], column=column_number[record["column"]])
+        notes.setdefault((record["row"], column_number[record["column"]]), []).append(comment_text(record))
+        if record["reason"] == FLAGGED:
+            cell.border = FLAG_BORDER                      # orange-red border: look at this value
+            if cell.fill.fill_type != "solid":
+                cell.fill = PatternFill("solid", fgColor=FLAG_FILL_COLOR)   # light red, unless a change color is there already
+            continue
         fill = fill_for(record["reason"])
         if fill:
             cell.fill = fill
-        if comment_budget[0] > 0:
-            text = comment_text(record)
-            comment = Comment(text, AUTHOR)
-            comment.width = 300
-            comment.height = 40 + 18 * (text.count("\n") + 1 + len(text) // 45)
-            cell.comment = comment
-            comment_budget[0] -= 1
+
+    # Changes are drawn before flags in the records list, so a flagged cell that was also changed keeps its change color.
+    for (row, number), lines in notes.items():
+        if comment_budget[0] <= 0:
+            break
+        text = "\n".join(lines)
+        comment = Comment(text, AUTHOR)
+        comment.width = 300
+        comment.height = 40 + 18 * (text.count("\n") + 1 + len(text) // 45)
+        worksheet.cell(row=row, column=number).comment = comment
+        comment_budget[0] -= 1
 
 
 def _unique_title(wanted: str, taken: list) -> str:
@@ -207,7 +222,10 @@ def _write_summary(worksheet, report: dict, records_by_sheet: dict, notes: list)
         if quality:
             put(row, 1, f"Data quality by column - {sheet_name}", bold=True, border=False)
             row += 1
+            flagged_after = quality.get("flagged_after")
             headers = ["Column", "Type", "Missing before", "Missing after", "Placeholders before", "Invalid before", "Invalid after"]
+            if flagged_after is not None:
+                headers.append("Flagged (not changed)")
             for number, header in enumerate(headers, start=1):
                 put(row, number, header, bold=True, fill=HEADER_FILL)
             row += 1
@@ -221,6 +239,8 @@ def _write_summary(worksheet, report: dict, records_by_sheet: dict, notes: list)
                     int(after.at[name, "Blank"] + after.at[name, "Placeholders"]) if present else "column removed",
                     int(line["Placeholders"]), int(line["Invalid"]), int(after.at[name, "Invalid"]) if present else "column removed",
                 ]
+                if flagged_after is not None:
+                    values.append(flagged_after.get(name, 0))
                 for number, value in enumerate(values, start=1):
                     put(row, number, value)
                 row += 1
@@ -232,16 +252,25 @@ def _write_summary(worksheet, report: dict, records_by_sheet: dict, notes: list)
         put(row, number, header, bold=True, fill=HEADER_FILL)
     row += 1
     for reason in REASON_ORDER:
+        if reason == FLAGGED:
+            continue  # shown after the total: flagged cells are warnings, not changes
         swatch = put(row, 1, "", fill=fill_for(reason))
         if not fill_for(reason):
             swatch.value = "(no color)"
         put(row, 2, COLOR_MEANINGS.get(reason, f"{REASON_LABELS[reason]} - listed in the Change Log, not colored"))
         put(row, 3, totals[reason])
         row += 1
-    put(row, 1, "Total", bold=True, fill=SECTION_FILL)
+    put(row, 1, "Total cells changed", bold=True, fill=SECTION_FILL)
     put(row, 2, "", fill=SECTION_FILL)
-    put(row, 3, sum(totals.values()), bold=True, fill=SECTION_FILL)
-    row += 2
+    put(row, 3, sum(number for reason, number in totals.items() if reason != FLAGGED), bold=True, fill=SECTION_FILL)
+    row += 1
+    if report.get("flagging"):
+        swatch = put(row, 1, "", fill=PatternFill("solid", fgColor=FLAG_FILL_COLOR))
+        swatch.border = FLAG_BORDER
+        put(row, 2, FLAG_MEANING)
+        put(row, 3, totals[FLAGGED])
+        row += 1
+    row += 1
 
     put(row, 1, "Hover over a colored cell to see what it was and why it changed.", border=False)
     row += 1
@@ -251,7 +280,7 @@ def _write_summary(worksheet, report: dict, records_by_sheet: dict, notes: list)
 
     worksheet.column_dimensions["A"].width = 38
     worksheet.column_dimensions["B"].width = 58
-    for letter in "CDEFG":
+    for letter in "CDEFGH":
         worksheet.column_dimensions[letter].width = 20
 
 
@@ -397,12 +426,23 @@ def build_highlighted_workbook(sheets: dict, records_by_sheet: dict, report: dic
 
 
 def export_workbook(cleaned_sheets: dict, change_logs: dict, sheet_stats: dict, quality_before: dict,
-                    placeholders, file_name: str, original_rows: dict, include_report: bool = True) -> bytes:
+                    placeholders, file_name: str, original_rows: dict, include_report: bool = True,
+                    flagging: bool = False, flags_before: dict = None) -> bytes:
     """Everything the app needs for the Excel download in one call: turns the
     per-sheet ChangeLogs into final records (rows numbered as in the cleaned
     sheets) and builds the workbook. Takes only plain data, so it can run on
     a background thread when the user clicks the download button."""
     records = {name: log.finalize(cleaned_sheets[name]) for name, log in (change_logs or {}).items() if name in cleaned_sheets}
+
+    # Implausible values are flagged (never changed): they join the records so they get a border, a comment
+    # and a row in the Change Log.
+    flagged_after = {}
+    if flagging:
+        for name, info in sheet_stats.items():
+            if info["cleaned"] and name in cleaned_sheets:
+                result = find_flags(cleaned_sheets[name], list(placeholders))
+                flagged_after[name] = flag_counts(result)
+                records[name] = merge_flag_records(records.get(name, []), result, list(cleaned_sheets[name].columns))
 
     report = None
     if include_report:
@@ -410,8 +450,11 @@ def export_workbook(cleaned_sheets: dict, change_logs: dict, sheet_stats: dict, 
             "file_name": file_name,
             "generated": datetime.now(),
             "sheet_stats": sheet_stats,
+            "flagging": flagging,
             "quality_by_sheet": {
-                name: {"before": quality_before[name], "after": profile_dataframe(cleaned_sheets[name], list(placeholders))}
+                name: {"before": quality_before[name], "after": profile_dataframe(cleaned_sheets[name], list(placeholders)),
+                       **({"flagged_after": flagged_after.get(name, {}), "flagged_before": (flags_before or {}).get(name, {})}
+                          if flagging else {})}
                 for name, info in sheet_stats.items() if info["cleaned"] and name in quality_before
             },
             "original_rows": original_rows,

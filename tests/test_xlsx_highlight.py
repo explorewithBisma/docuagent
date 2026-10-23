@@ -155,7 +155,7 @@ for reason in ("calculated", "lookup", "placeholder", "ai_rule"):
     r = label_row[meaning]
     assert (summ.cell(row=r, column=1).fill.fgColor.rgb or "")[-6:] == expected[reason]            # legend swatch
     assert summ.cell(row=r, column=3).value == counts[reason]                                       # totals by change type
-total_row = next(c.row for c in cells.values() if c.value == "Total" and c.column == 1)
+total_row = next(c.row for c in cells.values() if c.value == "Total cells changed" and c.column == 1)
 assert summ.cell(row=total_row, column=3).value == len(records)
 assert any(t_ == "Data quality by column - Data" for t_ in texts)
 qrow = next(c.row for c in cells.values() if c.value == "Missing before")

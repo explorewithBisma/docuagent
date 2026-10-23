@@ -23,8 +23,9 @@ LOOKUP = "lookup"
 TRIMMED = "trimmed"
 AI_RULE = "ai_rule"
 NUMERIC = "numeric"
+FLAGGED = "flagged"   # not a change: a value that looks implausible, flagged and left as it is
 
-REASON_ORDER = (PLACEHOLDER, CALCULATED, LOOKUP, AI_RULE, TRIMMED, NUMERIC)
+REASON_ORDER = (PLACEHOLDER, CALCULATED, LOOKUP, AI_RULE, TRIMMED, NUMERIC, FLAGGED)
 
 REASON_LABELS = {
     PLACEHOLDER: "Placeholder cleared",
@@ -33,6 +34,7 @@ REASON_LABELS = {
     AI_RULE: "AI rule",
     TRIMMED: "Whitespace trimmed",
     NUMERIC: "Number converted",
+    FLAGGED: "Flagged (not changed)",
 }
 
 # Soft, readable fill colours (hex, no '#'). Trimmed / converted cells get no fill.
@@ -42,6 +44,10 @@ REASON_COLORS = {
     PLACEHOLDER: "D9D9D9",  # light grey
     AI_RULE: "BDD7EE",      # light blue
 }
+
+FLAG_BORDER_COLOR = "E26B0A"   # orange-red border around a flagged cell
+FLAG_FILL_COLOR = "F8D7DA"     # light red fill, used only when the cell has no change color of its own
+FLAG_MEANING = "Orange-red border - flagged: looks implausible (the value was NOT changed)"
 
 COLOR_MEANINGS = {
     CALCULATED: "Green - calculated exactly from other values in the row",
@@ -180,6 +186,9 @@ def reason_text(record: dict) -> str:
 
 def comment_text(record: dict) -> str:
     """The text of the cell comment: what the cell was, and why it changed."""
+    if record["reason"] == FLAGGED:
+        return f"Flagged: {record['detail']}"
+
     old = record["old"]
     if (not isinstance(old, str) and is_blank(old)) or old == "":  # NA check first: pd.NA == "" raises
         was = "Was: (blank)"

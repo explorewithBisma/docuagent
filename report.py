@@ -9,7 +9,9 @@ on the page.
 import pandas as pd
 import streamlit as st
 
-from changes import COLOR_MEANINGS, REASON_COLORS, REASON_LABELS, reason_text, summarize
+from changes import (
+    COLOR_MEANINGS, FLAG_BORDER_COLOR, FLAG_FILL_COLOR, FLAGGED, REASON_COLORS, REASON_LABELS, reason_text, summarize,
+)
 from xlsx_export import number_format_for
 
 PREVIEW_ROWS = 200  # rows shown in the on-page preview
@@ -23,22 +25,44 @@ def format_stat(value) -> str:
     return "skipped (step turned off)" if value is None else str(value)
 
 
-def with_missing_total(profile: pd.DataFrame) -> pd.DataFrame:
+def with_missing_total(profile: pd.DataFrame, flagged: dict = None) -> pd.DataFrame:
     """Add a 'Missing total' column (blank cells + placeholder cells) to a
-    quality profile, so before/after are easy to compare at a glance."""
+    quality profile, so before/after are easy to compare at a glance. If
+    `flagged` ({column: count}) is given, also a 'Flagged' column: values that
+    look implausible (they are flagged, never changed)."""
     shown = profile.copy()
     shown.insert(4, "Missing total", shown["Blank"] + shown["Placeholders"])
+    if flagged is not None:
+        shown.insert(list(shown.columns).index("Unique"), "Flagged", shown["Column"].map(lambda column: int(flagged.get(column, 0))))
     return shown
+
+
+def _skipped_note(quality: dict) -> str:
+    """Why statistical outlier flagging was skipped for some columns (empty if it wasn't)."""
+    skipped = quality.get("flag_skipped") or {}
+    if not skipped:
+        return ""
+    names = ", ".join(f"{column} ({share:.0%})" for column, share in skipped.items())
+    return ("Statistical outlier flagging was skipped for: " + names + " - more than 5% of their values lie outside the "
+            "usual range, so they are naturally wide-ranging rather than containing a few odd values. "
+            "Negative, placeholder-code and age checks still apply.")
 
 
 def _quality_lines(quality: dict) -> list:
     """Report lines for the before/after data-quality tables of one sheet."""
-    before, after = with_missing_total(quality["before"]), with_missing_total(quality["after"])
+    before = with_missing_total(quality["before"], quality.get("flagged_before"))
+    after = with_missing_total(quality["after"], quality.get("flagged_after"))
     lines = ["", "Data quality - before cleaning:"]
     lines += ["  " + line for line in before.to_string(index=False).splitlines()]
     lines += ["", "Data quality - after cleaning:"]
     lines += ["  " + line for line in after.to_string(index=False).splitlines()]
     lines.append(f"Missing cells: {int(before['Missing total'].sum())} before -> {int(after['Missing total'].sum())} after")
+    if "Flagged" in after:
+        flagged = {row["Column"]: int(row["Flagged"]) for _, row in after.iterrows() if row["Flagged"]}
+        lines.append(f"Flagged values (not changed, just flagged for a look): {sum(flagged.values())}"
+                     + (" - " + ", ".join(f"{column} {number}" for column, number in flagged.items()) if flagged else ""))
+        if _skipped_note(quality):
+            lines.append(_skipped_note(quality))
     return lines
 
 
@@ -185,13 +209,18 @@ def render_quality_panel(quality_by_sheet: dict):
     show_sheet_names = len(quality_by_sheet) > 1
 
     for sheet_name, quality in quality_by_sheet.items():
-        before, after = with_missing_total(quality["before"]), with_missing_total(quality["after"])
+        before = with_missing_total(quality["before"], quality.get("flagged_before"))
+        after = with_missing_total(quality["after"], quality.get("flagged_after"))
         section = st.expander(f"Sheet: {sheet_name}", expanded=True) if show_sheet_names else st.container()
         with section:
             st.caption(
                 f"Missing cells (blank + placeholder): {int(before['Missing total'].sum())} before → "
                 f"{int(after['Missing total'].sum())} after"
             )
+            if "Flagged" in after:
+                st.caption("Flagged = values that look implausible (e.g. an age of -7). They are flagged for a look, never changed.")
+                if _skipped_note(quality):
+                    st.caption(_skipped_note(quality))
             left, right = st.columns(2)
             with left:
                 st.write("**Before cleaning**")
@@ -302,6 +331,9 @@ def legend_html() -> str:
         f'{COLOR_MEANINGS[reason].split(" - ")[1]}</span>'
         for reason in REASON_COLORS
     )
+    chips += (f'<span style="background:#{FLAG_FILL_COLOR};color:#1f1f1f;border:2px solid #{FLAG_BORDER_COLOR};padding:0 8px;'
+              f'border-radius:4px;margin-right:8px;font-size:0.85em;display:inline-block;margin-bottom:4px">'
+              f'Red border: flagged - looks implausible (not changed)</span>')
     return chips
 
 
@@ -316,10 +348,19 @@ def styled_preview(df: pd.DataFrame, records: list, only_changed: bool = False, 
 
     css = pd.DataFrame("", index=shown.index, columns=shown.columns)
     wanted = set(positions)
+    flagged_cells = []
     for record in records:
+        if record["position"] not in wanted:
+            continue
+        cell = (df.index[record["position"]], record["column"])
+        if record["reason"] == FLAGGED:
+            flagged_cells.append(cell)
+            continue
         color = REASON_COLORS.get(record["reason"])
-        if color and record["position"] in wanted:
-            css.at[df.index[record["position"]], record["column"]] = f"background-color: #{color}; color: #1f1f1f"
+        if color:
+            css.at[cell] = f"background-color: #{color}; color: #1f1f1f"
+    for cell in flagged_cells:  # orange-red border; light red fill only if the cell has no change color
+        css.at[cell] = (css.at[cell] or f"background-color: #{FLAG_FILL_COLOR}; color: #1f1f1f") + f"; border: 2px solid #{FLAG_BORDER_COLOR}"
 
     styler = shown.style.format(na_rep="").apply(lambda _: css, axis=None)
     for column in shown.columns:
