@@ -203,7 +203,8 @@ with mock.patch.dict(os.environ, {"GROQ_API_KEY": "gsk_fake", "AI_PROVIDER": "gr
     assert names.index("Apply Approved Rules") < names.index("Download Recipe (.json)")
     assert names.index("Download AI suggestions (.json)") < names.index("Apply Approved Rules")
     recipe_buttons = [b for b in at.download_button if b.label == "Download Recipe (.json)"]
-    assert len(recipe_buttons) == 2                                                                      # panel + bottom of the page
+    assert len(recipe_buttons) == 1                                                                      # the AI panel one
+    assert len([b for b in at.download_button if b.label == "Download same recipe again (.json)"]) == 1  # bottom copy, labelled differently
     saved_recipe = json.loads(captured["Download Recipe (.json)"]["data"].decode("utf-8"))
     assert [(r["id"], r["approved"]) for r in saved_recipe["rules"]] == [("rule_1", True), ("rule_2", True)]   # only what was approved
     assert "provider" not in saved_recipe                                                                # a recipe is not a suggestions file

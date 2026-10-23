@@ -206,8 +206,8 @@ without paying for another AI call.
 
 **Recipes:** once you've approved a set of rules, you can save them as a
 reusable `.json` recipe file - the **Download Recipe (.json)** button appears
-in the AI panel right after "Apply Approved Rules" succeeds (and again at the
-bottom of the page). Loading a recipe later skips the AI call entirely and goes
+in the AI panel right after "Apply Approved Rules" succeeds (and a copy labelled
+**Download same recipe again (.json)** at the bottom of the page). Loading a recipe later skips the AI call entirely and goes
 straight to the same approve/reject review screen, pre-checked - so reusing a
 recipe on a new (similarly-shaped) file is fast but still never fully silent.
 

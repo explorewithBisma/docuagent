@@ -656,14 +656,14 @@ if st.session_state.cleaned_sheets is not None:
 
     # --- Save approved rules as a reusable recipe ---
     if st.session_state.rule_outcomes_by_sheet:
-        st.write("**Save these approved rules as a reusable recipe:**")
+        st.write("**Same recipe as in the AI panel above** (a second copy of the download, for convenience):")
         recipe_name = st.session_state.get("recipe_name", "My Cleaning Recipe")   # edited in the AI panel above
         unique_rules = collect_unique_approved_rules(st.session_state.suggested_rules_by_sheet)
         if unique_rules:
             recipe = recipes.build_recipe(recipe_name, locale_code, unique_rules)
             recipe_bytes = recipes.save_recipe_bytes(recipe)
             st.download_button(
-                label="Download Recipe (.json)",
+                label="Download same recipe again (.json)",
                 data=recipe_bytes,
                 file_name=f"{recipe_name.strip().replace(' ', '_') or 'recipe'}_recipe.json",
                 mime="application/json",
