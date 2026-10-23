@@ -47,9 +47,42 @@ These deterministic steps (under **Advanced cleaning**) handle that:
   placeholders, missing total, invalid, distinct values) is shown before and
   after cleaning, side by side, and written into the `.txt` report.
 
-Order of steps: headers → trim → placeholders → numbers → duplicates → empty
-rows/columns → fills. Cells that are genuinely unknowable (e.g. a missing
-Payment Method) stay empty rather than being invented.
+Order of steps: headers → trim → placeholders → numbers → empty rows/columns →
+duplicates → fills. Empty rows are removed *before* duplicates are counted, so
+a pile of blank rows is never reported as "duplicates of each other"
+("30 empty rows + 80 duplicates", not "109 duplicates"). Cells that are
+genuinely unknowable (e.g. a missing Payment Method) stay empty rather than
+being invented.
+
+### Nothing disappears silently: removed rows
+
+Every row taken out - a duplicate or a fully empty row - is recorded with the
+row number it had in **your uploaded file**, the reason ("Duplicate of row
+242" / "Fully empty row"), and its **full original content** (spaces and
+placeholders included). You'll find them in a "Removed rows" table on the
+Changes tab, in the `.txt` report (row numbers), and on a **Removed Rows**
+sheet at the end of the Excel download (one "Removed - <sheet>" sheet per
+sheet that lost rows).
+
+### Suspicious values are flagged, never changed
+
+A deterministic check (no AI) looks at numeric columns and flags - with an
+orange-red border, a note, a row in the Change Log marked "Flagged (not
+changed)", and a per-column "Flagged" count in the quality table:
+
+- **negative values** in columns that shouldn't be negative (age, quantity,
+  days, price, cost, amount ...);
+- **placeholder codes** such as 999, 9999 or -999 (only when they are rare in
+  the column);
+- **ages** below 10 or above 100;
+- **statistical outliers** - values more than 3× the interquartile range beyond
+  the quartiles. This check is skipped for a column when more than 5% of its
+  values would be flagged, because that means the column is naturally
+  wide-ranging (prices across product types, say) rather than containing a few
+  odd values; the Data Quality tab tells you which columns were skipped.
+
+Values are never deleted or altered. Untick **Flag suspicious values** under
+Advanced cleaning to turn this off.
 
 ### See exactly what changed: the highlighted Excel file
 
@@ -62,6 +95,7 @@ value, reason), in memory only. The Excel download shows it:
 | Yellow | inferred from a lookup pattern in your file |
 | Grey | placeholder (e.g. `ERROR`) cleared to blank |
 | Light blue | changed by an approved AI rule |
+| Orange-red border (light red fill if nothing else colors it) | flagged as suspicious - **not changed** |
 
 Hover over any changed cell for a note, e.g. `Was: ERROR` or
 `Calculated exactly: Quantity 2 x Price Per Unit 3.0`. (Trimmed cells get a
@@ -77,8 +111,11 @@ your own sheets are never changed or reordered:
   did, a per-column before/after quality table, totals by change type, and a
   color legend.
 - **Change Log** - one filterable row per changed cell (Row, Column, Old
-  value, New value, Reason). Capped at 50,000 rows; the summary says so if
-  that happens. Cell comments are capped at 20,000 (the colors are not).
+  value, New value, Reason), plus the flagged cells (reason "Flagged (not
+  changed)"). Capped at 50,000 rows; the summary says so if that happens. Cell
+  comments are capped at 20,000 (the colors are not).
+- **Removed Rows** - the full original content of every removed row (only if
+  rows were removed).
 
 **CSV uploads:** the plain CSV download stays as it was, and a second button,
 **Download as Excel (with highlights)**, gives the annotated workbook (CSV
@@ -108,11 +145,26 @@ The same summary can be downloaded as a `.txt` report alongside the cleaned file
 
 ## AI-suggested cleaning rules (optional)
 
-Beyond the 4 fixed steps, you can ask an AI to suggest extra, more specific
+Beyond the fixed steps, you can ask an AI to suggest extra, more specific
 rules based on what it sees in your column names and a few sample values:
 normalizing phone numbers to a standard international format, making
-category text consistently cased, parsing dates into one format, or turning
-currency text ("$1,234.50") into plain numbers.
+category text consistently cased, mapping variants to a standard value,
+parsing dates into one format, or turning currency text ("$1,234.50") into
+plain numbers.
+
+The five rule types are `normalize_phone`, `unify_casing`, `parse_date`,
+`strip_currency_to_number` and **`map_values`**. `map_values` maps specific
+values to one standard value, ignoring case - for example gender
+`{"m": "Male", "male": "Male", "f": "Female", "female": "Female"}` turns
+`m`, `M`, `male` and `MALE` into `Male`. Values that aren't in the map are left
+unchanged and counted ("not in the map"), and every key in the map must really
+exist in the column (otherwise the rule is rejected with the missing keys
+listed). The AI is told to prefer `map_values` over `unify_casing` when a
+column has abbreviations or variants, not just casing differences. Note that
+the AI only sees up to 8 sample values per column, so it can only map the
+variants that appear in its samples - rare variants may need a hand-edited
+recipe. With "Mask sample values" on, the AI cannot suggest `map_values` at all
+(it never sees the real values).
 
 **Privacy:** the AI only ever receives column names, data types, and up to 8
 sample values per column — never your full file, never a full column, and
@@ -285,7 +337,7 @@ To stop the app, go back to the terminal and press `Ctrl+C`.
 1. Click **"Upload your .xlsx or .csv file"** and choose your messy file.
 2. (Excel files with multiple sheets only) Choose whether to clean **all
    sheets** or just **one**.
-3. Tick/untick whichever of the 4 cleaning steps you want to run, then click
+3. Tick/untick whichever of the cleaning steps you want to run, then click
    **"Clean File"**.
 4. (Optional) Pick a country/locale, then click **"Suggest Cleaning Rules"**
    - or load a previously saved recipe instead. Review each suggested rule
@@ -308,7 +360,8 @@ xlsx_export.py  - the highlighted Excel workbook: colors, comments, Cleaning Sum
 io_utils.py     - loading files / building the plain CSV / Excel bytes
 report.py       - the on-page cards, color-coded preview, change table, quality tables and the .txt report
 locales.py      - country/locale defaults (phone region, date, currency)
-rule_engine.py  - the 4 AI-suggestable rule types, executed locally with pandas
+rule_engine.py  - the 5 AI-suggestable rule types (incl. map_values), executed locally with pandas
+flags.py        - deterministic warnings about implausible numbers (flagged, never changed)
 ai_rules.py     - talks to Groq or Anthropic to SUGGEST rules (never runs them)
 recipes.py      - saving/loading a reusable set of approved rules as JSON
 tests/          - run everything with:  python tests/run_all.py
