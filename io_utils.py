@@ -21,12 +21,20 @@ def load_sheets(uploaded_file, is_csv: bool) -> dict:
     A CSV file always produces exactly one entry. An Excel file produces one
     entry per sheet it actually contains — every sheet is loaded, so none of
     them can be silently dropped later."""
+    # By default pandas silently turns text like "N/A", "NA", "null" or "None"
+    # into missing values, which would hide them from the placeholder report.
+    # So only truly empty cells become missing here; every other piece of text
+    # is kept exactly as written and the cleaning steps decide what it means.
     if is_csv:
-        return {CSV_SHEET_NAME: pd.read_csv(uploaded_file)}
+        # A CSV has no cell types, so read everything as text (this also keeps
+        # leading zeros in codes and phone numbers). The numeric-conversion
+        # step turns genuine number columns back into numbers.
+        return {CSV_SHEET_NAME: pd.read_csv(uploaded_file, dtype=str, keep_default_na=False, na_values=[""])}
     else:
         # sheet_name=None tells pandas "read every sheet", returned as a dict
         # that keeps the sheets in the same order as the original file.
-        return pd.read_excel(uploaded_file, sheet_name=None)
+        # Excel cells keep their real types (numbers stay numbers).
+        return pd.read_excel(uploaded_file, sheet_name=None, keep_default_na=False, na_values=[""])
 
 
 def convert_to_download_bytes(sheets: dict, is_csv: bool) -> bytes:
