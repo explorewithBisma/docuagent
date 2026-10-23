@@ -217,24 +217,36 @@ assumption for phone region, currency symbol, and whether dates are usually
 day-first - but override it for a specific column if its sample values
 clearly show a different country or format.
 
-You may ONLY use these 4 rule types, with these exact params:
+You may ONLY use these 5 rule types, with these exact params:
 - "normalize_phone": params = {{"country": "<one of {list(LOCALES.keys())}>"}}
 - "unify_casing": params = {{"style": "title" | "upper" | "lower"}}
   Only suggest this for a column whose sample values show the SAME word in
   different casings (e.g. "active", "Active", "ACTIVE"). If the sample
   values are already written consistently - even if not in Title Case, e.g.
-  "In-store", "Cash", or codes like "USD" - do NOT suggest it.
+  "In-store", "Cash", or codes like "USD" - do NOT suggest it. If the column
+  also has abbreviations or other variants (not only casing), use "map_values"
+  instead.
 - "parse_date": params = {{"output_format": "<strftime format, e.g. '%Y-%m-%d'>",
   "input_format": "<optional strptime hint>", "day_first": <true/false>}}
 - "strip_currency_to_number": params = {{"currency_symbol": "<e.g. '$'>",
   "decimal_places": <integer, usually 2>}}
+- "map_values": params = {{"mapping": {{"<variant>": "<standard value>", ...}}}}
+  Use this when a column holds a few categories written in several ways:
+  abbreviations, synonyms, typos or casing variants (e.g. "m", "M", "male",
+  "MALE" -> "Male"; "f", "female", "FEMALE" -> "Female"). PREFER map_values
+  over unify_casing whenever the variants are more than just casing
+  differences. List every variant you can see in the samples, in lower case
+  (matching ignores case), INCLUDING the standard value itself, and use only
+  values that really appear in the samples - never invent a key. Values you
+  do not list are left unchanged. Do not use it when the sample values look
+  masked (made only of X, x and 9 characters).
 
 Give each rule a short, unique "id" (e.g. "rule_1"), the exact "column" name
 from the profiles below, and a one-sentence human-readable "description" of
 what it will do. Set "confidence" to "high", "medium", or "low".
 
 Respond with ONLY a JSON object of exactly this shape, and nothing else:
-{{"rules": [{{"id": "rule_1", "column": "<column name>", "rule_type": "<one of the 4>",
+{{"rules": [{{"id": "rule_1", "column": "<column name>", "rule_type": "<one of the 5>",
 "params": {{...}}, "description": "<one sentence>", "confidence": "high"}}]}}
 If no rule is warranted, respond with {{"rules": []}}.
 
@@ -257,7 +269,8 @@ def parse_rules_response(response_text: str) -> list:
     return parsed["rules"]
 
 
-def filter_valid_rules(raw_rules: list, available_columns: list, inconsistent_casing_columns=None):
+def filter_valid_rules(raw_rules: list, available_columns: list, inconsistent_casing_columns=None,
+                       known_values: dict = None):
     """The single gate every provider's answer passes through. Keeps only
     rules that pass rule_engine.validate_rule() and returns (valid_rules,
     dropped), where `dropped` lists {"description", "reason"} for every
@@ -266,13 +279,24 @@ def filter_valid_rules(raw_rules: list, available_columns: list, inconsistent_ca
     `inconsistent_casing_columns` (optional) is the set of columns whose real
     values really do contain the same word in different casings. When given,
     a unify_casing rule for any other column is discarded: re-casing values
-    that are already consistent can only damage them."""
+    that are already consistent can only damage them. `known_values` lets a
+    map_values rule be checked against the column's real values (every key
+    must exist). If a column gets both a valid map_values rule and a
+    unify_casing rule, the unify_casing one is dropped: the mapping covers it."""
     valid_rules = []
     dropped = []
     used_ids = set()
 
+    mapped_columns = {
+        raw["column"] for raw in raw_rules
+        if isinstance(raw, dict) and raw.get("rule_type") == "map_values"
+        and not validate_rule(raw, available_columns, known_values)
+    }
+
     for raw in raw_rules:
-        error = validate_rule(raw, available_columns)
+        error = validate_rule(raw, available_columns, known_values)
+        if not error and raw["rule_type"] == "unify_casing" and raw["column"] in mapped_columns:
+            error = "A map_values rule already standardizes this column."
         if (not error and inconsistent_casing_columns is not None and raw["rule_type"] == "unify_casing"
                 and raw["column"] not in inconsistent_casing_columns):
             error = "The real values in this column already have consistent casing."
@@ -418,7 +442,7 @@ def _final_answer_text(content) -> str:
 
 
 def suggest_rules(column_profiles: list, locale_code: str, provider: str = None,
-                  inconsistent_casing_columns=None) -> dict:
+                  inconsistent_casing_columns=None, known_values: dict = None) -> dict:
     """Get cleaning-rule suggestions from the chosen provider and return
     {"rules": [...valid rules...], "dropped": [...], "provider": ..., "model": ...}.
     Raises AISuggestionError (with a user-readable message) on any problem -
@@ -437,6 +461,6 @@ def suggest_rules(column_profiles: list, locale_code: str, provider: str = None,
         )
 
     rules, dropped = filter_valid_rules(
-        raw_rules, [profile["column"] for profile in column_profiles], inconsistent_casing_columns
+        raw_rules, [profile["column"] for profile in column_profiles], inconsistent_casing_columns, known_values
     )
     return {"rules": rules, "dropped": dropped, "provider": provider, "model": model_for(provider)}

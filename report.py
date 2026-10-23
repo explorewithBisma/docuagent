@@ -116,13 +116,19 @@ def _removed_lines(rows: list) -> list:
     return lines
 
 
+def _outcome_stats_text(stats: dict) -> str:
+    """'converted 5, failed 1' - or, for value mapping, how many values were not in the map."""
+    if "unmapped" in stats:
+        return f"converted {stats['converted']}, not in the map (left unchanged) {stats['unmapped']}"
+    return f"converted {stats['converted']}, failed {stats['failed']}"
+
+
 def _format_rule_outcome_line(outcome: dict) -> str:
     """One line describing what an approved AI-suggested rule actually did."""
     rule = outcome["rule"]
     if "error" in outcome:
         return f'  - "{rule["description"]}" -> SKIPPED ({outcome["error"]})'
-    stats = outcome["stats"]
-    return f'  - "{rule["description"]}" -> converted {stats["converted"]}, failed {stats["failed"]}'
+    return f'  - "{rule["description"]}" -> {_outcome_stats_text(outcome["stats"])}'
 
 
 def build_report_text(file_name: str, sheet_stats: dict, rule_outcomes_by_sheet: dict = None,
@@ -235,10 +241,8 @@ def render_summary_panel(sheet_stats: dict, rule_outcomes_by_sheet: dict = None)
                         st.write(f'  &nbsp;&nbsp;"{rule["description"]}" → skipped ({outcome["error"]})',
                                  unsafe_allow_html=True)
                     else:
-                        rule_stats = outcome["stats"]
                         st.write(
-                            f'  &nbsp;&nbsp;"{rule["description"]}" → converted {rule_stats["converted"]}, '
-                            f'failed {rule_stats["failed"]}',
+                            f'  &nbsp;&nbsp;"{rule["description"]}" → {_outcome_stats_text(outcome["stats"])}',
                             unsafe_allow_html=True,
                         )
 

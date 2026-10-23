@@ -169,15 +169,49 @@ def apply_strip_currency_to_number(df: pd.DataFrame, column: str, params: dict, 
 
 
 # ---------------------------------------------------------------------------
+# RULE TYPE 5: map_values
+# ---------------------------------------------------------------------------
+
+MAX_MAPPING_ENTRIES = 200
+
+
+def apply_map_values(df: pd.DataFrame, column: str, params: dict, skip_values=frozenset()):
+    """Map specific values to one standard value, ignoring case and surrounding
+    spaces: {"m": "Male", "male": "Male", "f": "Female"} turns m, M, male and
+    MALE into "Male". Real values that are not in the mapping are left exactly
+    as they are and counted as `unmapped`; blanks and placeholders are ignored.
+    `converted` counts only cells whose text actually changed."""
+    mapping = {key.strip().casefold(): target.strip() for key, target in params["mapping"].items()}
+    converted = 0
+    unmapped = 0
+
+    def map_one(value):
+        nonlocal converted, unmapped
+        if not isinstance(value, str) or value.strip() == "" or _is_skipped(value, skip_values):
+            return value
+        target = mapping.get(value.strip().casefold())
+        if target is None:
+            unmapped += 1
+            return value
+        if target != value:
+            converted += 1
+        return target
+
+    df[column] = df[column].apply(map_one)
+    return df, {"converted": converted, "failed": 0, "unmapped": unmapped}
+
+
+# ---------------------------------------------------------------------------
 # THE RULE VOCABULARY, DISPATCHER, AND VALIDATION
 # ---------------------------------------------------------------------------
 
-# The AI must pick from exactly these 4 rule types - never invent its own.
+# The AI must pick from exactly these 5 rule types - never invent its own.
 RULE_HANDLERS = {
     "normalize_phone": apply_normalize_phone,
     "unify_casing": apply_unify_casing,
     "parse_date": apply_parse_date,
     "strip_currency_to_number": apply_strip_currency_to_number,
+    "map_values": apply_map_values,
 }
 
 # What each rule_type's "params" is expected to look like: which keys are
@@ -188,16 +222,19 @@ RULE_PARAM_SCHEMAS = {
     "unify_casing": {"required": ["style"], "optional": []},
     "parse_date": {"required": ["output_format"], "optional": ["input_format", "day_first"]},
     "strip_currency_to_number": {"required": [], "optional": ["currency_symbol", "decimal_places"]},
+    "map_values": {"required": ["mapping"], "optional": []},
 }
 
 REQUIRED_RULE_KEYS = {"id", "column", "rule_type", "params", "description"}
 
 
-def validate_rule(rule: dict, available_columns: list) -> str:
+def validate_rule(rule: dict, available_columns: list, known_values: dict = None) -> str:
     """Check that a rule (from the AI or a loaded recipe file) is safe to show
     and run. Returns an empty string if the rule is valid, otherwise a short
     explanation of what's wrong - callers should drop the rule and show this
-    message instead of running it."""
+    message instead of running it. `known_values` ({column: set of the column's
+    real values, trimmed and lower-case}) lets map_values check that every key
+    in its mapping really exists in the column."""
     if not isinstance(rule, dict) or not REQUIRED_RULE_KEYS.issubset(rule.keys()):
         return "Rule is missing required fields."
 
@@ -231,6 +268,26 @@ def validate_rule(rule: dict, available_columns: list) -> str:
             return "parse_date needs a non-empty output_format."
         if "day_first" in params and not isinstance(params["day_first"], bool):
             return "parse_date day_first must be true or false."
+
+    if rule_type == "map_values":
+        mapping = params["mapping"]
+        if not isinstance(mapping, dict) or not mapping:
+            return "map_values needs a non-empty 'mapping' of old value -> standard value."
+        if len(mapping) > MAX_MAPPING_ENTRIES:
+            return f"map_values has too many entries (limit {MAX_MAPPING_ENTRIES})."
+        seen = {}
+        for key, target in mapping.items():
+            if not isinstance(key, str) or not key.strip() or not isinstance(target, str) or not target.strip():
+                return "Every map_values entry must be text -> text, with neither side empty."
+            folded = key.strip().casefold()
+            if folded in seen and seen[folded] != target.strip():
+                return f"map_values key '{key}' appears twice (ignoring case) with different standard values."
+            seen[folded] = target.strip()
+        if known_values is not None and rule["column"] in known_values:
+            missing = [key for key in mapping if key.strip().casefold() not in known_values[rule["column"]]]
+            if missing:
+                listed = ", ".join(f"'{key}'" for key in missing[:8]) + (" ..." if len(missing) > 8 else "")
+                return f"These mapping keys do not exist in column '{rule['column']}': {listed}."
 
     if rule_type == "strip_currency_to_number" and "decimal_places" in params:
         places = params["decimal_places"]

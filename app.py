@@ -43,7 +43,9 @@ from report import (
     render_quality_panel, render_summary_panel, styled_preview, summary_metrics, totals_by_reason,
 )
 from locales import LOCALES, DEFAULT_LOCALE
-from quality import DEFAULT_PLACEHOLDERS, columns_with_inconsistent_casing, parse_placeholder_text, profile_dataframe
+from quality import (
+    DEFAULT_PLACEHOLDERS, casefolded_values, columns_with_inconsistent_casing, parse_placeholder_text, profile_dataframe,
+)
 import ai_rules
 import rule_engine
 import recipes
@@ -360,7 +362,8 @@ if st.session_state.cleaned_sheets is not None:
             value=False,
             help="Replaces every digit with '9', uppercase letters with 'X' and lowercase with 'x' before sending sample "
                  "values (e.g. \"0300-1234567\" becomes \"9999-9999999\"). The AI still sees the "
-                 "shape of the data, never the real content.",
+                 "shape of the data, never the real content. (With masking on, the AI cannot suggest value-mapping "
+                 "rules, because it never sees the real values.)",
         )
 
         with st.expander("Load a saved recipe instead of asking the AI"):
@@ -408,6 +411,8 @@ if st.session_state.cleaned_sheets is not None:
                         result = ai_rules.suggest_rules(
                             profiles, locale_code, provider,
                             inconsistent_casing_columns=columns_with_inconsistent_casing(df, placeholders_in_effect),
+                            known_values={column: casefolded_values(df[column], placeholders_in_effect)
+                                          for column in df.columns if df[column].dtype == object},
                         )
                         rules = result["rules"]  # already validated; start unchecked
                         if suggestion_info is None:
@@ -469,7 +474,9 @@ if st.session_state.cleaned_sheets is not None:
                         for rule in rules_by_sheet.get(sheet_name, []):
                             if not rule["approved"]:
                                 continue
-                            error = rule_engine.validate_rule(rule, list(df_after_rules.columns))
+                            known = ({rule["column"]: casefolded_values(df_after_rules[rule["column"]], placeholders_in_effect)}
+                                     if rule["rule_type"] == "map_values" and rule["column"] in df_after_rules.columns else None)
+                            error = rule_engine.validate_rule(rule, list(df_after_rules.columns), known)
                             if error:
                                 outcomes.append({"rule": rule, "error": error})
                                 continue

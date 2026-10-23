@@ -159,6 +159,16 @@ def casing_variants(series: pd.Series, placeholders=DEFAULT_PLACEHOLDERS) -> dic
     return {key: sorted(found) for key, found in spellings.items() if len(found) > 1}
 
 
+def casefolded_values(series: pd.Series, placeholders=DEFAULT_PLACEHOLDERS) -> set:
+    """The distinct REAL text values of a column, trimmed and lower-cased - what a
+    value-mapping rule's keys are matched against (blanks and placeholders are not values)."""
+    placeholder_set = normalize_placeholders(placeholders)
+    return {
+        value.strip().casefold() for value in series.dropna().unique()
+        if isinstance(value, str) and value.strip() and not is_placeholder(value, placeholder_set)
+    }
+
+
 def columns_with_inconsistent_casing(df: pd.DataFrame, placeholders=DEFAULT_PLACEHOLDERS) -> set:
     """Names of the columns whose real values contain the same word in
     different casings. Only these are worth a 'unify casing' rule."""
