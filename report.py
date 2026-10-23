@@ -9,6 +9,14 @@ on the page.
 import pandas as pd
 import streamlit as st
 
+from changes import COLOR_MEANINGS, REASON_COLORS, REASON_LABELS, reason_text, summarize
+from xlsx_export import number_format_for
+
+PREVIEW_ROWS = 200  # rows shown in the on-page preview
+CHANGES_ROWS = 1000  # rows shown in the on-page change table
+
+_PYTHON_FORMATS = {"0": "{:.0f}", "0.00": "{:.2f}", "#,##0.00": "{:,.2f}"}  # Excel number format -> display format
+
 
 def format_stat(value) -> str:
     """Turn a stat value into readable text: None means the step was skipped."""
@@ -215,3 +223,109 @@ def render_summary_panel(sheet_stats: dict, rule_outcomes_by_sheet: dict = None)
                             f'failed {rule_stats["failed"]}',
                             unsafe_allow_html=True,
                         )
+
+
+# ---------------------------------------------------------------------------
+# METRIC CARDS, COLOR-CODED PREVIEW AND CHANGE TABLE (the on-page "what changed" view)
+# ---------------------------------------------------------------------------
+
+def summary_metrics(sheet_stats: dict, cleaned_sheets: dict, original_rows: dict, quality_by_sheet: dict,
+                    records_by_sheet: dict) -> dict:
+    """The headline numbers across every sheet that was cleaned."""
+    cleaned = [name for name, info in sheet_stats.items() if info["cleaned"]]
+    placeholders = filled_exact = filled_inferred = 0
+    for name in cleaned:
+        stats = sheet_stats[name]["stats"]
+        placeholders += (stats.get("placeholders") or {}).get("total", 0)
+        filled_exact += sum(((stats.get("fills") or {}).get("calculated") or {}).values())
+        filled_inferred += sum(((stats.get("fills") or {}).get("lookup") or {}).values())
+
+    missing_before = sum(int((q["before"]["Blank"] + q["before"]["Placeholders"]).sum()) for q in quality_by_sheet.values())
+    missing_after = sum(int((q["after"]["Blank"] + q["after"]["Placeholders"]).sum()) for q in quality_by_sheet.values())
+    return {
+        "rows_before": sum(original_rows.get(name, 0) for name in cleaned),
+        "rows_after": sum(len(cleaned_sheets[name]) for name in cleaned),
+        "placeholders": placeholders,
+        "filled": filled_exact + filled_inferred,
+        "filled_exact": filled_exact,
+        "filled_inferred": filled_inferred,
+        "ai_changes": sum(summarize(records_by_sheet.get(name, []))["ai_rule"] for name in cleaned),
+        "missing_before": missing_before,
+        "missing_after": missing_after,
+    }
+
+
+def render_metric_cards(metrics: dict) -> None:
+    """Four cards: rows, placeholders removed, cells filled, missing before -> after."""
+    rows, placeholders, filled, missing = st.columns(4)
+    removed = metrics["rows_before"] - metrics["rows_after"]
+    rows.metric("Rows", f"{metrics['rows_after']:,}", delta=f"{removed:,} removed" if removed else None,
+                delta_color="off", help="Rows in the cleaned file (duplicate and completely empty rows are removed).")
+    placeholders.metric("Placeholders removed", f"{metrics['placeholders']:,}",
+                        help="Cells that said ERROR, UNKNOWN, N/A ... and were cleared to a real blank.")
+    filled.metric("Cells filled", f"{metrics['filled']:,}",
+                  help=f"{metrics['filled_exact']:,} calculated exactly from other values in the row, "
+                       f"{metrics['filled_inferred']:,} inferred from a lookup pattern in your file.")
+    change = metrics["missing_after"] - metrics["missing_before"]
+    missing.metric("Missing cells", f"{metrics['missing_before']:,} → {metrics['missing_after']:,}",
+                   delta=f"{change:+,}" if change else None, delta_color="inverse",
+                   help="Blank cells plus placeholder cells, before and after cleaning (fewer is better).")
+
+
+def legend_html() -> str:
+    """Colored chips explaining the highlight colors (same colors as the Excel download)."""
+    chips = "".join(
+        f'<span style="background:#{REASON_COLORS[reason]};color:#1f1f1f;padding:2px 10px;border-radius:4px;'
+        f'margin-right:8px;font-size:0.85em;display:inline-block;margin-bottom:4px">{COLOR_MEANINGS[reason].split(" - ")[0]}: '
+        f'{COLOR_MEANINGS[reason].split(" - ")[1]}</span>'
+        for reason in REASON_COLORS
+    )
+    return chips
+
+
+def styled_preview(df: pd.DataFrame, records: list, only_changed: bool = False, limit: int = PREVIEW_ROWS):
+    """A pandas Styler of the first `limit` rows (or the first `limit` rows
+    that contain a change) with changed cells in the same colors as the Excel
+    download. Returns (styler, rows_shown, rows_available)."""
+    changed_rows = sorted({record["position"] for record in records})
+    available = changed_rows if only_changed else list(range(len(df)))
+    positions = available[:limit]
+    shown = df.iloc[positions]
+
+    css = pd.DataFrame("", index=shown.index, columns=shown.columns)
+    wanted = set(positions)
+    for record in records:
+        color = REASON_COLORS.get(record["reason"])
+        if color and record["position"] in wanted:
+            css.at[df.index[record["position"]], record["column"]] = f"background-color: #{color}; color: #1f1f1f"
+
+    styler = shown.style.format(na_rep="").apply(lambda _: css, axis=None)
+    for column in shown.columns:
+        number_format = number_format_for(column, df[column])
+        if number_format in _PYTHON_FORMATS:
+            styler = styler.format(_PYTHON_FORMATS[number_format], subset=[column], na_rep="")
+    return styler, len(positions), len(available)
+
+
+def changes_dataframe(records_by_sheet: dict) -> pd.DataFrame:
+    """Every changed cell as a table: Sheet, Row, Column, Old value, New value, Reason."""
+    rows = []
+    for sheet_name, records in records_by_sheet.items():
+        for record in records:
+            old, new = record["old"], record["new"]
+            rows.append({
+                "Sheet": sheet_name, "Row": record["row"], "Column": record["column"],
+                "Old value": "(blank)" if (not isinstance(old, str) and pd.isna(old)) or old == "" else str(old),
+                "New value": "(blank)" if (not isinstance(new, str) and pd.isna(new)) or new == "" else str(new),
+                "Reason": reason_text(record), "_kind": record["reason"],
+            })
+    return pd.DataFrame(rows, columns=["Sheet", "Row", "Column", "Old value", "New value", "Reason", "_kind"])
+
+
+def totals_by_reason(records_by_sheet: dict) -> pd.DataFrame:
+    """A small table: change type and how many cells."""
+    counts = {reason: 0 for reason in REASON_LABELS}
+    for records in records_by_sheet.values():
+        for reason, number in summarize(records).items():
+            counts[reason] += number
+    return pd.DataFrame({"Change type": [REASON_LABELS[r] for r in counts], "Cells": list(counts.values())})
