@@ -13,6 +13,51 @@ Each of these 4 steps can be turned on/off individually on the page (all are
 on by default). "Remove duplicate rows" has a warning tooltip, since repeat
 entries (e.g. repeat orders) can sometimes be legitimate data, not mistakes.
 
+### For files full of placeholders and blanks (no AI needed)
+
+Real exports are often dirty in a different way: cells say `ERROR`,
+`UNKNOWN` or `N/A` instead of being empty, and numbers end up stored as text.
+These deterministic steps (under **Advanced cleaning**) handle that:
+
+- **Placeholders → missing.** A cell that is *entirely* a placeholder
+  (`ERROR, UNKNOWN, N/A, NA, #N/A, NULL, NONE, NAN, -, --, ?`, ignoring case
+  and spaces) becomes a genuinely empty cell. The list is editable - remove a
+  word if it is a legitimate value in your data. The report counts what was
+  converted, per column.
+- **Numbers stored as text → real numbers.** A column becomes numeric when at
+  least 90% of its values are plain numbers (`1,500` is fine). Whole-number
+  columns become integers. IDs, codes, zip codes and phone numbers are never
+  converted (names like *ID/Code/Zip/Phone*, values with leading zeros, and
+  10+ digit strings are protected). Values that don't parse stay as text and
+  are listed as invalid. Text like `Rs. 1,500/-` is left for the AI currency rule.
+- **Fill a missing value only when it can be worked out exactly.** The app
+  looks for relationships in your data and lists them as tick boxes:
+  - *Exact arithmetic* (ticked by default), e.g. `Total Spent = Quantity x
+    Price Per Unit`, accepted only if it holds on **every** row where all
+    three values are present. Any one missing value is then calculated; whole-number
+    columns are only filled when the answer is a whole number.
+  - *Learned lookups* (**unticked by default**), e.g. `Item → Price Per Unit`
+    ("every Item always had the same price"). This is a pattern inferred from
+    your file, not a law, so it is opt-in and reported separately as
+    "inferred". An ID column can never be a lookup key.
+
+  Existing values are never overwritten, and the report says how many cells
+  were filled and by which method.
+- **Data quality: before vs after.** A per-column table (type, blank,
+  placeholders, missing total, invalid, distinct values) is shown before and
+  after cleaning, side by side, and written into the `.txt` report.
+
+Order of steps: headers → trim → placeholders → numbers → duplicates → empty
+rows/columns → fills. Cells that are genuinely unknowable (e.g. a missing
+Payment Method) stay empty rather than being invented.
+
+### Nicer Excel downloads
+
+`.xlsx` downloads get a bold, frozen header row, columns sized to their
+content, and phone-like columns stored as **text** so leading zeros and `+`
+signs survive (Excel would otherwise turn `0300-1234567` into a number). CSV
+downloads are unchanged.
+
 ## Multi-sheet Excel files
 
 If you upload an `.xlsx` file with more than one sheet, you can choose to
@@ -221,14 +266,27 @@ To stop the app, go back to the terminal and press `Ctrl+C`.
 
 ```
 app.py          - the page itself (UI only)
-cleaning.py     - the 4 deterministic cleaning steps
-io_utils.py     - loading files / building the downloadable bytes
-report.py       - building the on-page summary and the .txt report
+cleaning.py     - the deterministic cleaning steps (headers, trim, placeholders, numbers, duplicates, empty, fills)
+quality.py      - shared helpers: placeholder matching, number parsing, phone detection, before/after profile
+derive.py       - finding relationships between columns and filling gaps only when exactly derivable
+io_utils.py     - loading files / building the downloadable bytes (incl. XLSX polish)
+report.py       - building the on-page summary, quality tables and the .txt report
 locales.py      - country/locale defaults (phone region, date, currency)
 rule_engine.py  - the 4 AI-suggestable rule types, executed locally with pandas
-ai_rules.py     - talks to the Anthropic API to SUGGEST rules (never runs them)
+ai_rules.py     - talks to Groq or Anthropic to SUGGEST rules (never runs them)
 recipes.py      - saving/loading a reusable set of approved rules as JSON
+tests/          - run everything with:  python tests/run_all.py
 ```
+
+## Running the tests
+
+```
+python tests/run_all.py
+```
+Runs every script in `tests/` (logic tests, plus UI tests that drive the real
+page with Streamlit's `AppTest` - no browser, no API key, no network). The
+`dirty_cafe_sales.csv` checks run only if the file is at
+`Downloads/archive/dirty_cafe_sales.csv`.
 
 The uploaded file is only used in memory while the app is running — nothing
 is saved on disk, and your original file is never modified.
