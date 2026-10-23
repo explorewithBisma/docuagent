@@ -35,9 +35,9 @@ import streamlit as st  # the web UI framework
 from cleaning import clean_dataframe_with_steps
 from derive import detect_relationships
 from io_utils import load_sheets, convert_to_download_bytes
-from report import build_report_text, render_summary_panel
+from report import build_report_text, render_quality_panel, render_summary_panel
 from locales import LOCALES, DEFAULT_LOCALE
-from quality import DEFAULT_PLACEHOLDERS, columns_with_inconsistent_casing, parse_placeholder_text
+from quality import DEFAULT_PLACEHOLDERS, columns_with_inconsistent_casing, parse_placeholder_text, profile_dataframe
 import ai_rules
 import rule_engine
 import recipes
@@ -50,6 +50,21 @@ def detect_for_sheet(df, steps, placeholders):
     data or the cleaning settings change."""
     prepared, _ = clean_dataframe_with_steps(df.copy(), {**steps, "fills": False}, {"placeholders": list(placeholders)})
     return detect_relationships(prepared)
+
+
+@st.cache_data(show_spinner=False)
+def cached_profile(df, placeholders):
+    """Per-column data-quality profile (cached - recomputing it on every click would be wasteful)."""
+    return profile_dataframe(df, list(placeholders))
+
+
+def build_quality(cleaned_sheets: dict, sheet_stats: dict, quality_before: dict, placeholders) -> dict:
+    """Before/after quality tables for every sheet that was cleaned. 'After' is
+    measured on the data as it is right now, so it includes any AI rules applied."""
+    return {
+        name: {"before": quality_before[name], "after": cached_profile(cleaned_sheets[name], tuple(placeholders))}
+        for name, info in sheet_stats.items() if info["cleaned"] and name in quality_before
+    }
 
 
 def collect_unique_approved_rules(suggested_rules_by_sheet: dict) -> list:
@@ -91,7 +106,7 @@ uploaded_file = st.file_uploader("Upload your .xlsx or .csv file", type=["xlsx",
 # soon as you clicked anything else.
 SESSION_KEYS = (
     "cleaned_sheets", "sheet_stats", "report_text", "original_filename", "is_csv",
-    "suggested_rules_by_sheet", "rule_outcomes_by_sheet", "suggestion_info", "placeholder_list",
+    "suggested_rules_by_sheet", "rule_outcomes_by_sheet", "suggestion_info", "placeholder_list", "quality_before",
 )
 for key in SESSION_KEYS:
     if key not in st.session_state:
@@ -235,7 +250,13 @@ if uploaded_file is not None:
         st.session_state.is_csv = is_csv
         st.session_state.original_filename = uploaded_file.name
         st.session_state.placeholder_list = placeholder_list  # also used to keep placeholders out of the AI samples
-        st.session_state.report_text = build_report_text(uploaded_file.name, sheet_stats)
+        st.session_state.quality_before = {
+            name: cached_profile(sheets[name], tuple(placeholder_list)) for name in sheets_to_clean
+        }
+        st.session_state.report_text = build_report_text(
+            uploaded_file.name, sheet_stats,
+            quality_by_sheet=build_quality(cleaned_sheets, sheet_stats, st.session_state.quality_before, placeholder_list),
+        )
         # A fresh clean invalidates any AI suggestions from a previous run.
         st.session_state.suggested_rules_by_sheet = None
         st.session_state.suggestion_info = None
@@ -412,6 +433,8 @@ if st.session_state.cleaned_sheets is not None:
                     st.session_state.original_filename,
                     st.session_state.sheet_stats,
                     rule_outcomes_by_sheet,
+                    build_quality(updated_sheets, st.session_state.sheet_stats, st.session_state.quality_before,
+                                  placeholders_in_effect),
                 )
                 st.success("Approved rules applied!")
 
@@ -426,6 +449,11 @@ if st.session_state.cleaned_sheets is not None:
     # no page refresh needed) ---
     st.subheader("Cleaning Summary")
     render_summary_panel(st.session_state.sheet_stats, st.session_state.rule_outcomes_by_sheet)
+
+    st.subheader("Data quality: before vs after")
+    render_quality_panel(build_quality(
+        cleaned_sheets, st.session_state.sheet_stats, st.session_state.quality_before, placeholders_in_effect,
+    ))
 
     # --- Save approved rules as a reusable recipe ---
     if st.session_state.rule_outcomes_by_sheet:

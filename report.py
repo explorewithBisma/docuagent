@@ -6,12 +6,32 @@ Builds the human-readable cleaning summary: both the plain-text version
 on the page.
 """
 
+import pandas as pd
 import streamlit as st
 
 
 def format_stat(value) -> str:
     """Turn a stat value into readable text: None means the step was skipped."""
     return "skipped (step turned off)" if value is None else str(value)
+
+
+def with_missing_total(profile: pd.DataFrame) -> pd.DataFrame:
+    """Add a 'Missing total' column (blank cells + placeholder cells) to a
+    quality profile, so before/after are easy to compare at a glance."""
+    shown = profile.copy()
+    shown.insert(4, "Missing total", shown["Blank"] + shown["Placeholders"])
+    return shown
+
+
+def _quality_lines(quality: dict) -> list:
+    """Report lines for the before/after data-quality tables of one sheet."""
+    before, after = with_missing_total(quality["before"]), with_missing_total(quality["after"])
+    lines = ["", "Data quality - before cleaning:"]
+    lines += ["  " + line for line in before.to_string(index=False).splitlines()]
+    lines += ["", "Data quality - after cleaning:"]
+    lines += ["  " + line for line in after.to_string(index=False).splitlines()]
+    lines.append(f"Missing cells: {int(before['Missing total'].sum())} before -> {int(after['Missing total'].sum())} after")
+    return lines
 
 
 def _placeholder_lines(stats: dict) -> list:
@@ -80,7 +100,8 @@ def _format_rule_outcome_line(outcome: dict) -> str:
     return f'  - "{rule["description"]}" -> converted {stats["converted"]}, failed {stats["failed"]}'
 
 
-def build_report_text(file_name: str, sheet_stats: dict, rule_outcomes_by_sheet: dict = None) -> str:
+def build_report_text(file_name: str, sheet_stats: dict, rule_outcomes_by_sheet: dict = None,
+                      quality_by_sheet: dict = None) -> str:
     """Build the plain-text version of the cleaning report (used for the
     downloadable .txt file). `rule_outcomes_by_sheet` is optional - when not
     given (or empty for a sheet), the report looks exactly like it did before
@@ -120,7 +141,32 @@ def build_report_text(file_name: str, sheet_stats: dict, rule_outcomes_by_sheet:
             for outcome in rule_outcomes:
                 lines.append(_format_rule_outcome_line(outcome))
 
+        quality = (quality_by_sheet or {}).get(sheet_name)
+        if quality:
+            lines.extend(_quality_lines(quality))
+
     return "\n".join(lines)
+
+
+def render_quality_panel(quality_by_sheet: dict):
+    """Show the before/after data-quality tables on the page, side by side."""
+    show_sheet_names = len(quality_by_sheet) > 1
+
+    for sheet_name, quality in quality_by_sheet.items():
+        before, after = with_missing_total(quality["before"]), with_missing_total(quality["after"])
+        section = st.expander(f"Sheet: {sheet_name}", expanded=True) if show_sheet_names else st.container()
+        with section:
+            st.caption(
+                f"Missing cells (blank + placeholder): {int(before['Missing total'].sum())} before → "
+                f"{int(after['Missing total'].sum())} after"
+            )
+            left, right = st.columns(2)
+            with left:
+                st.write("**Before cleaning**")
+                st.dataframe(before, hide_index=True, use_container_width=True)
+            with right:
+                st.write("**After cleaning**")
+                st.dataframe(after, hide_index=True, use_container_width=True)
 
 
 def render_summary_panel(sheet_stats: dict, rule_outcomes_by_sheet: dict = None):
