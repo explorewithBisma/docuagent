@@ -26,6 +26,9 @@ import anthropic
 
 from rule_engine import RULE_HANDLERS, validate_rule
 from locales import LOCALES
+from quality import (
+    DEFAULT_PLACEHOLDERS, columns_with_inconsistent_casing, normalize_placeholders, real_values,
+)
 
 # The only two places a model is named - change them here.
 # Default models. Either can be overridden without touching code by setting
@@ -117,25 +120,30 @@ def mask_value(value) -> str:
     return "".join(masked_characters)
 
 
-def build_column_profile(df: pd.DataFrame, mask: bool) -> list:
+def build_column_profile(df: pd.DataFrame, mask: bool, placeholders=DEFAULT_PLACEHOLDERS) -> list:
     """Build the small, privacy-safe description of each column that gets
     sent to the AI: its name, data type, how many values are missing, and a
     handful of sample values (optionally masked). This is the *entire*
     privacy boundary - nothing else about the data ever leaves the machine:
-    no full columns, no row counts beyond non-null/null, no other columns."""
+    no full columns, no row counts beyond non-null/null, no other columns.
+
+    Placeholder text such as "ERROR" or "UNKNOWN" is junk, not data: it is
+    never used as a sample, and it counts as missing, so the AI judges a
+    column by its real values only."""
+    placeholder_set = normalize_placeholders(placeholders)
     profiles = []
 
     for column in df.columns:
         series = df[column]
-        non_null_values = series.dropna()
-        sample_count = min(SAMPLE_SIZE, len(non_null_values))
+        real = real_values(series, placeholder_set)  # not blank, not a placeholder
+        sample_count = min(SAMPLE_SIZE, len(real))
 
         if sample_count == 0:
             samples = []
         else:
             # A fixed random_state keeps the sample (and therefore the AI's
             # suggestions) reproducible for the same file.
-            samples = non_null_values.sample(n=sample_count, random_state=42).tolist()
+            samples = real.sample(n=sample_count, random_state=42).tolist()
 
         if mask:
             samples = [mask_value(value) for value in samples]
@@ -145,8 +153,8 @@ def build_column_profile(df: pd.DataFrame, mask: bool) -> list:
         profiles.append({
             "column": str(column),
             "dtype": str(series.dtype),
-            "non_null_count": int(series.notna().sum()),
-            "null_count": int(series.isna().sum()),
+            "non_null_count": int(len(real)),
+            "null_count": int(len(series) - len(real)),
             "sample_values": samples,
         })
 
@@ -197,6 +205,9 @@ def build_prompt(column_profiles: list, locale_code: str) -> str:
 profiles below (names, data types, and a few sample values), suggest
 cleaning rules for columns that would benefit from one.
 
+The samples contain real values only: blanks and placeholders such as ERROR or
+UNKNOWN have already been removed, so never build a rule around them.
+
 Only suggest a rule when the sample values clearly show the kind of problem
 it would fix - never suggest a rule "just in case". It is completely fine to
 suggest rules for only some columns, or none at all.
@@ -209,6 +220,10 @@ clearly show a different country or format.
 You may ONLY use these 4 rule types, with these exact params:
 - "normalize_phone": params = {{"country": "<one of {list(LOCALES.keys())}>"}}
 - "unify_casing": params = {{"style": "title" | "upper" | "lower"}}
+  Only suggest this for a column whose sample values show the SAME word in
+  different casings (e.g. "active", "Active", "ACTIVE"). If the sample
+  values are already written consistently - even if not in Title Case, e.g.
+  "In-store", "Cash", or codes like "USD" - do NOT suggest it.
 - "parse_date": params = {{"output_format": "<strftime format, e.g. '%Y-%m-%d'>",
   "input_format": "<optional strptime hint>", "day_first": <true/false>}}
 - "strip_currency_to_number": params = {{"currency_symbol": "<e.g. '$'>",
@@ -242,17 +257,25 @@ def parse_rules_response(response_text: str) -> list:
     return parsed["rules"]
 
 
-def filter_valid_rules(raw_rules: list, available_columns: list):
+def filter_valid_rules(raw_rules: list, available_columns: list, inconsistent_casing_columns=None):
     """The single gate every provider's answer passes through. Keeps only
     rules that pass rule_engine.validate_rule() and returns (valid_rules,
     dropped), where `dropped` lists {"description", "reason"} for every
-    rejected suggestion so the UI can say what was discarded and why."""
+    rejected suggestion so the UI can say what was discarded and why.
+
+    `inconsistent_casing_columns` (optional) is the set of columns whose real
+    values really do contain the same word in different casings. When given,
+    a unify_casing rule for any other column is discarded: re-casing values
+    that are already consistent can only damage them."""
     valid_rules = []
     dropped = []
     used_ids = set()
 
     for raw in raw_rules:
         error = validate_rule(raw, available_columns)
+        if (not error and inconsistent_casing_columns is not None and raw["rule_type"] == "unify_casing"
+                and raw["column"] not in inconsistent_casing_columns):
+            error = "The real values in this column already have consistent casing."
         if error:
             description = raw.get("description") if isinstance(raw, dict) else None
             dropped.append({"description": str(description or "(unreadable suggestion)"), "reason": error})
@@ -394,7 +417,8 @@ def _final_answer_text(content) -> str:
     return fenced.group(1) if fenced else text
 
 
-def suggest_rules(column_profiles: list, locale_code: str, provider: str = None) -> dict:
+def suggest_rules(column_profiles: list, locale_code: str, provider: str = None,
+                  inconsistent_casing_columns=None) -> dict:
     """Get cleaning-rule suggestions from the chosen provider and return
     {"rules": [...valid rules...], "dropped": [...], "provider": ..., "model": ...}.
     Raises AISuggestionError (with a user-readable message) on any problem -
@@ -412,5 +436,7 @@ def suggest_rules(column_profiles: list, locale_code: str, provider: str = None)
             "Try again - if it keeps happening, the response may have been cut off."
         )
 
-    rules, dropped = filter_valid_rules(raw_rules, [profile["column"] for profile in column_profiles])
+    rules, dropped = filter_valid_rules(
+        raw_rules, [profile["column"] for profile in column_profiles], inconsistent_casing_columns
+    )
     return {"rules": rules, "dropped": dropped, "provider": provider, "model": model_for(provider)}

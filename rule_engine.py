@@ -19,12 +19,20 @@ import pandas as pd
 import phonenumbers
 
 from locales import LOCALES
+from quality import normalize_placeholders
+
+
+def _is_skipped(value, skip_values) -> bool:
+    """True for placeholder text (e.g. 'ERROR') that rules must leave alone: it is
+    neither converted nor counted as a failure. `skip_values` is a set of
+    upper-case texts from quality.normalize_placeholders()."""
+    return isinstance(value, str) and value.strip().upper() in skip_values
 
 # ---------------------------------------------------------------------------
 # RULE TYPE 1: normalize_phone
 # ---------------------------------------------------------------------------
 
-def apply_normalize_phone(df: pd.DataFrame, column: str, params: dict):
+def apply_normalize_phone(df: pd.DataFrame, column: str, params: dict, skip_values=frozenset()):
     """Reformat phone numbers in `column` to the international E.164 format
     (e.g. "0300-1234567" -> "+923001234567"), using params['country'] as the
     default region. Numbers that can't be parsed are left exactly as-is."""
@@ -34,7 +42,7 @@ def apply_normalize_phone(df: pd.DataFrame, column: str, params: dict):
 
     def normalize_one(value):
         nonlocal converted, failed
-        if not isinstance(value, str) or value.strip() == "":
+        if not isinstance(value, str) or value.strip() == "" or _is_skipped(value, skip_values):
             return value
         try:
             parsed = phonenumbers.parse(value, country)
@@ -56,9 +64,11 @@ def apply_normalize_phone(df: pd.DataFrame, column: str, params: dict):
 # RULE TYPE 2: unify_casing
 # ---------------------------------------------------------------------------
 
-def apply_unify_casing(df: pd.DataFrame, column: str, params: dict):
-    """Make every text value in `column` use the same capitalization style
-    (e.g. "active"/"Active"/"ACTIVE" -> all "Active")."""
+def apply_unify_casing(df: pd.DataFrame, column: str, params: dict, skip_values=frozenset()):
+    """Make every real text value in `column` use the same capitalization style
+    (e.g. "active"/"Active"/"ACTIVE" -> all "Active"). Missing cells and
+    placeholder text (e.g. "ERROR") are left alone, and only cells that
+    actually changed are counted as converted."""
     style = params.get("style", "title")
     style_functions = {"title": str.title, "upper": str.upper, "lower": str.lower}
     change_case = style_functions.get(style, str.title)
@@ -66,7 +76,7 @@ def apply_unify_casing(df: pd.DataFrame, column: str, params: dict):
 
     def unify_one(value):
         nonlocal converted
-        if not isinstance(value, str):
+        if not isinstance(value, str) or value.strip() == "" or _is_skipped(value, skip_values):
             return value
         new_value = change_case(value)
         if new_value != value:
@@ -81,7 +91,7 @@ def apply_unify_casing(df: pd.DataFrame, column: str, params: dict):
 # RULE TYPE 3: parse_date
 # ---------------------------------------------------------------------------
 
-def apply_parse_date(df: pd.DataFrame, column: str, params: dict):
+def apply_parse_date(df: pd.DataFrame, column: str, params: dict, skip_values=frozenset()):
     """Parse dates in `column` and rewrite them all in one consistent format.
     params['input_format'] is an optional strptime-style hint (e.g. "%d/%m/%Y");
     if left out, pandas guesses using params['day_first'] as a tie-breaker.
@@ -96,6 +106,8 @@ def apply_parse_date(df: pd.DataFrame, column: str, params: dict):
     def parse_one(value):
         nonlocal converted, failed
         if value is None or (isinstance(value, float) and pd.isna(value)):
+            return value
+        if isinstance(value, str) and (value.strip() == "" or _is_skipped(value, skip_values)):
             return value
         try:
             if input_format:
@@ -121,7 +133,7 @@ def apply_parse_date(df: pd.DataFrame, column: str, params: dict):
 # RULE TYPE 4: strip_currency_to_number
 # ---------------------------------------------------------------------------
 
-def apply_strip_currency_to_number(df: pd.DataFrame, column: str, params: dict):
+def apply_strip_currency_to_number(df: pd.DataFrame, column: str, params: dict, skip_values=frozenset()):
     """Turn text like "$1,234.50" or "Rs 1234" into a plain number (1234.5),
     by taking the first number found in the text (commas removed).
     Values containing no number are treated as failures and left exactly
@@ -132,7 +144,7 @@ def apply_strip_currency_to_number(df: pd.DataFrame, column: str, params: dict):
 
     def strip_one(value):
         nonlocal converted, failed
-        if not isinstance(value, str):
+        if not isinstance(value, str) or value.strip() == "" or _is_skipped(value, skip_values):
             return value
 
         # Find the first number in the text, ignoring currency symbols and
@@ -227,8 +239,10 @@ def validate_rule(rule: dict, available_columns: list) -> str:
     return ""
 
 
-def apply_rule(df: pd.DataFrame, rule: dict):
+def apply_rule(df: pd.DataFrame, rule: dict, skip_values=()):
     """Run one approved rule against `df` and return (df, stats).
-    Assumes the rule has already been checked with validate_rule()."""
+    Assumes the rule has already been checked with validate_rule().
+    `skip_values` lists placeholder texts (e.g. ["ERROR", "UNKNOWN"]) that the
+    rule must leave untouched and not count."""
     handler = RULE_HANDLERS[rule["rule_type"]]
-    return handler(df, rule["column"], rule["params"])
+    return handler(df, rule["column"], rule["params"], normalize_placeholders(skip_values))

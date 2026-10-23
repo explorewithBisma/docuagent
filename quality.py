@@ -142,6 +142,30 @@ def is_phone_like(name, series: pd.Series) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# CASING
+# ---------------------------------------------------------------------------
+
+def casing_variants(series: pd.Series, placeholders=DEFAULT_PLACEHOLDERS) -> dict:
+    """Find words written in more than one casing among a column's REAL text
+    values (blanks and placeholders are ignored). Returns
+    {lowercase form: sorted list of spellings} for every word that has 2+
+    spellings, e.g. {"active": ["ACTIVE", "Active", "active"]}. An empty dict
+    means the column's casing is already consistent."""
+    placeholder_set = normalize_placeholders(placeholders)
+    spellings = {}
+    for value in series:
+        if isinstance(value, str) and not is_blank(value) and not is_placeholder(value, placeholder_set):
+            spellings.setdefault(value.casefold(), set()).add(value)
+    return {key: sorted(found) for key, found in spellings.items() if len(found) > 1}
+
+
+def columns_with_inconsistent_casing(df: pd.DataFrame, placeholders=DEFAULT_PLACEHOLDERS) -> set:
+    """Names of the columns whose real values contain the same word in
+    different casings. Only these are worth a 'unify casing' rule."""
+    return {column for column in df.columns if casing_variants(df[column], placeholders)}
+
+
+# ---------------------------------------------------------------------------
 # COLUMN TYPE + QUALITY PROFILE
 # ---------------------------------------------------------------------------
 

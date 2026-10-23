@@ -36,7 +36,7 @@ from cleaning import clean_dataframe_with_steps
 from io_utils import load_sheets, convert_to_download_bytes
 from report import build_report_text, render_summary_panel
 from locales import LOCALES, DEFAULT_LOCALE
-from quality import DEFAULT_PLACEHOLDERS, parse_placeholder_text
+from quality import DEFAULT_PLACEHOLDERS, columns_with_inconsistent_casing, parse_placeholder_text
 import ai_rules
 import rule_engine
 import recipes
@@ -259,6 +259,19 @@ if st.session_state.cleaned_sheets is not None:
             except ValueError as error:
                 st.error(str(error))
 
+    # Placeholder text (ERROR, UNKNOWN ...) is junk, not data: the AI never sees it as a
+    # sample, and rules never touch it - whether or not the conversion step was on.
+    placeholders_in_effect = (
+        list(DEFAULT_PLACEHOLDERS) if st.session_state.placeholder_list is None else st.session_state.placeholder_list
+    )
+    if any(info["cleaned"] and info["stats"].get("placeholders", 0) is None
+           for info in st.session_state.sheet_stats.values()):
+        st.warning(
+            "Placeholder conversion was turned off for this clean, so placeholder text is still in the data. "
+            "It is hidden from the AI and skipped by every rule, but for best results turn the step back on "
+            "and click Clean File again."
+        )
+
     if st.button("Suggest Cleaning Rules"):
         suggested_rules_by_sheet = {}
         suggestion_info = None  # which provider/model answered, plus any discarded suggestions
@@ -271,9 +284,12 @@ if st.session_state.cleaned_sheets is not None:
         for sheet_name, df in cleaned_sheets.items():
             rules = []
             if provider is not None:
-                profiles = ai_rules.build_column_profile(df, mask=mask_samples)
+                profiles = ai_rules.build_column_profile(df, mask=mask_samples, placeholders=placeholders_in_effect)
                 try:
-                    result = ai_rules.suggest_rules(profiles, locale_code, provider)
+                    result = ai_rules.suggest_rules(
+                        profiles, locale_code, provider,
+                        inconsistent_casing_columns=columns_with_inconsistent_casing(df, placeholders_in_effect),
+                    )
                     rules = result["rules"]  # already validated; start unchecked
                     if suggestion_info is None:
                         suggestion_info = {"provider": result["provider"], "model": result["model"], "dropped": []}
@@ -341,7 +357,7 @@ if st.session_state.cleaned_sheets is not None:
                         if error:
                             outcomes.append({"rule": rule, "error": error})
                             continue
-                        df_after_rules, stats = rule_engine.apply_rule(df_after_rules, rule)
+                        df_after_rules, stats = rule_engine.apply_rule(df_after_rules, rule, skip_values=placeholders_in_effect)
                         outcomes.append({"rule": rule, "stats": stats})
                     updated_sheets[sheet_name] = df_after_rules
                     rule_outcomes_by_sheet[sheet_name] = outcomes
