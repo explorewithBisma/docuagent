@@ -8,7 +8,10 @@ no Streamlit code in here, so this logic can be tested and reused on its own.
 import numpy as np   # used to represent "missing" values (NaN)
 import pandas as pd
 
-from quality import DEFAULT_PLACEHOLDERS, is_placeholder, normalize_placeholders
+from quality import (
+    DEFAULT_PLACEHOLDERS, NUMERIC_SHARE, has_identifier_name, is_blank, is_phone_like, is_placeholder,
+    normalize_placeholders, parse_number, real_values,
+)
 
 
 def clean_column_headers(df: pd.DataFrame):
@@ -79,6 +82,78 @@ def convert_placeholders(df: pd.DataFrame, placeholders=DEFAULT_PLACEHOLDERS):
     return df, {"total": total, "by_column": by_column}
 
 
+def convert_numeric_columns(df: pd.DataFrame, placeholders=DEFAULT_PLACEHOLDERS):
+    """Turn text columns that are really numbers ("5", "3.0", "1,500") into
+    real numeric columns. A column is converted when at least 90% of its real
+    values parse as plain numbers. Values that don't parse are kept as text
+    and reported as invalid (the column then stays mixed); placeholder text
+    that is still present is left alone and not counted as invalid.
+
+    Identifiers are never converted: columns named like an ID / code / zip /
+    phone, columns of phone numbers, and values with leading zeros or 10+ digits
+    (see quality.parse_number). Integer-valued columns become whole numbers.
+
+    Returns the DataFrame and {"converted": [{"column", "kind", "invalid",
+    "examples"}], "skipped": {column: reason}}."""
+    placeholder_set = normalize_placeholders(placeholders)
+    converted = []
+    skipped = {}
+
+    for column in df.columns:
+        series = df[column]
+        if series.dtype != "object":
+            continue
+
+        values = real_values(series, placeholder_set)
+        if len(values) == 0:
+            continue
+        parsed_count = sum(parse_number(value) is not None for value in values)
+        if parsed_count / len(values) < NUMERIC_SHARE:
+            continue  # genuinely text
+
+        if has_identifier_name(column):
+            skipped[column] = "name looks like an ID, code or phone column"
+            continue
+        if is_phone_like(column, series):
+            skipped[column] = "values look like phone numbers"
+            continue
+
+        cells = []  # the new value of every cell, in order
+        whole_numbers = True
+        has_leftovers = False  # text that stays text: unparseable values and surviving placeholders
+        invalid = 0
+        invalid_examples = []
+        for value in series:
+            if is_blank(value):
+                cells.append(np.nan)
+                continue
+            number = parse_number(value)
+            if number is not None:
+                cells.append(number)
+                whole_numbers = whole_numbers and number == int(number)
+            else:
+                cells.append(value)
+                has_leftovers = True
+                if not is_placeholder(value, placeholder_set):
+                    invalid += 1
+                    if len(invalid_examples) < 3:
+                        invalid_examples.append(str(value))
+
+        if has_leftovers:
+            # Mixed column: real numbers where the text parsed, the original text elsewhere.
+            mixed = [int(cell) if isinstance(cell, float) and cell == cell and cell == int(cell) else cell for cell in cells]
+            df[column] = pd.Series(mixed, index=series.index, dtype="object")
+            kind = "mixed"
+        else:
+            numeric = pd.Series(cells, index=series.index, dtype="float64")
+            df[column] = numeric.astype("Int64") if whole_numbers else numeric
+            kind = "integer" if whole_numbers else "decimal"
+
+        converted.append({"column": column, "kind": kind, "invalid": invalid, "examples": invalid_examples})
+
+    return df, {"converted": converted, "skipped": skipped}
+
+
 def remove_duplicate_rows(df: pd.DataFrame):
     """Drop rows that are exact duplicates of an earlier row.
     Returns the updated DataFrame and how many duplicate rows were removed."""
@@ -100,7 +175,7 @@ def remove_empty_rows_and_columns(df: pd.DataFrame):
 
 def clean_dataframe_with_steps(df: pd.DataFrame, steps: dict, options: dict = None):
     """Run only the cleaning steps the user left turned on, in a fixed,
-    sensible order: headers -> trim -> placeholders -> duplicates -> empty.
+    sensible order: headers -> trim -> placeholders -> numbers -> duplicates -> empty.
     'steps' is a dict like {"headers": True, "trim": True, ...}; steps that
     aren't in the dict are not run. 'options' carries settings such as the
     placeholder list: {"placeholders": ["ERROR", "UNKNOWN"]}.
@@ -132,6 +207,13 @@ def clean_dataframe_with_steps(df: pd.DataFrame, steps: dict, options: dict = No
         stats["placeholders"] = None
         if steps["placeholders"]:
             df, stats["placeholders"] = convert_placeholders(df, options.get("placeholders", DEFAULT_PLACEHOLDERS))
+
+    # Numbers stored as text become real numbers (after placeholders are gone, so
+    # "ERROR" can no longer block the conversion).
+    if "numeric" in steps:
+        stats["numeric"] = None
+        if steps["numeric"]:
+            df, stats["numeric"] = convert_numeric_columns(df, options.get("placeholders", DEFAULT_PLACEHOLDERS))
 
     if steps["duplicates"]:
         df, duplicates_removed = remove_duplicate_rows(df)

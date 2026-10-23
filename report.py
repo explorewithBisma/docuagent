@@ -29,6 +29,28 @@ def _placeholder_lines(stats: dict) -> list:
     return lines
 
 
+def _numeric_lines(stats: dict) -> list:
+    """Report lines for the numbers-stored-as-text step."""
+    if "numeric" not in stats:
+        return []
+    info = stats["numeric"]
+    if info is None:
+        return ["Columns converted to numbers: skipped (step turned off)"]
+
+    if info["converted"]:
+        names = ", ".join(f"{item['column']} ({item['kind']})" for item in info["converted"])
+        lines = [f"Columns converted to numbers: {len(info['converted'])} - {names}"]
+    else:
+        lines = ["Columns converted to numbers: none"]
+    for item in info["converted"]:
+        if item["invalid"]:
+            examples = ", ".join(f"'{example}'" for example in item["examples"])
+            lines.append(f"  {item['column']}: {item['invalid']} value(s) are not numbers and were kept as text (e.g. {examples})")
+    for column, reason in info["skipped"].items():
+        lines.append(f"  {column}: left as text ({reason})")
+    return lines
+
+
 def _format_rule_outcome_line(outcome: dict) -> str:
     """One line describing what an approved AI-suggested rule actually did."""
     rule = outcome["rule"]
@@ -62,6 +84,7 @@ def build_report_text(file_name: str, sheet_stats: dict, rule_outcomes_by_sheet:
         lines.append(f"Fully empty columns removed: {format_stat(stats['empty_columns_removed'])}")
         lines.append(f"Text cells trimmed: {format_stat(stats['cells_trimmed'])}")
         lines.extend(_placeholder_lines(stats))
+        lines.extend(_numeric_lines(stats))
 
         if stats["header_renames"]:
             lines.append("Column headers renamed:")
@@ -99,7 +122,7 @@ def render_summary_panel(sheet_stats: dict, rule_outcomes_by_sheet: dict = None)
             st.write(f"- Fully empty rows removed: {format_stat(stats['empty_rows_removed'])}")
             st.write(f"- Fully empty columns removed: {format_stat(stats['empty_columns_removed'])}")
             st.write(f"- Text cells trimmed: {format_stat(stats['cells_trimmed'])}")
-            for line in _placeholder_lines(stats):
+            for line in _placeholder_lines(stats) + _numeric_lines(stats):
                 st.write(("- " + line) if not line.startswith("  ") else ("&nbsp;&nbsp;&nbsp;&nbsp;" + line.strip()),
                          unsafe_allow_html=True)
 

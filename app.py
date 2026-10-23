@@ -157,6 +157,12 @@ if uploaded_file is not None:
                  "can be filled in later, and no longer pollute the data. Remove a word from the list "
                  "if it is a legitimate value in your data (e.g. 'None' or 'NA' as a category).",
         )
+        do_numeric = st.checkbox(
+            "Convert numbers stored as text into real numbers",
+            value=True,
+            help="A column becomes numeric when at least 90% of its values are plain numbers. IDs, codes, "
+                 "zip codes and phone numbers (including anything with leading zeros) are never converted.",
+        )
         placeholder_text = st.text_area(
             "Placeholder values (one per line or comma-separated, case is ignored)",
             value="\n".join(DEFAULT_PLACEHOLDERS),
@@ -166,7 +172,7 @@ if uploaded_file is not None:
 
     steps = {
         "headers": do_headers, "trim": do_trim, "duplicates": do_duplicates, "empty": do_empty,
-        "placeholders": do_placeholders,
+        "placeholders": do_placeholders, "numeric": do_numeric,
     }
     placeholder_list = parse_placeholder_text(placeholder_text)
     options = {"placeholders": placeholder_list}
