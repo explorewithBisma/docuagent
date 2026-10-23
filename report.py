@@ -51,6 +51,26 @@ def _numeric_lines(stats: dict) -> list:
     return lines
 
 
+def _fill_lines(stats: dict) -> list:
+    """Report lines for values filled in from other columns."""
+    if "fills" not in stats:
+        return []
+    info = stats["fills"]
+    if info is None:
+        return ["Values filled from other columns: skipped (step turned off)"]
+
+    calculated, looked_up = info["calculated"], info["lookup"]
+    if not calculated and not looked_up:
+        return ["Values filled from other columns: none"]
+
+    lines = [f"Values filled from other columns: {sum(calculated.values()) + sum(looked_up.values())}"]
+    if calculated:
+        lines.append("  Calculated exactly: " + ", ".join(f"{column} {count}" for column, count in calculated.items()))
+    if looked_up:
+        lines.append("  Inferred from a lookup in this file: " + ", ".join(f"{column} {count}" for column, count in looked_up.items()))
+    return lines
+
+
 def _format_rule_outcome_line(outcome: dict) -> str:
     """One line describing what an approved AI-suggested rule actually did."""
     rule = outcome["rule"]
@@ -85,6 +105,7 @@ def build_report_text(file_name: str, sheet_stats: dict, rule_outcomes_by_sheet:
         lines.append(f"Text cells trimmed: {format_stat(stats['cells_trimmed'])}")
         lines.extend(_placeholder_lines(stats))
         lines.extend(_numeric_lines(stats))
+        lines.extend(_fill_lines(stats))
 
         if stats["header_renames"]:
             lines.append("Column headers renamed:")
@@ -122,7 +143,7 @@ def render_summary_panel(sheet_stats: dict, rule_outcomes_by_sheet: dict = None)
             st.write(f"- Fully empty rows removed: {format_stat(stats['empty_rows_removed'])}")
             st.write(f"- Fully empty columns removed: {format_stat(stats['empty_columns_removed'])}")
             st.write(f"- Text cells trimmed: {format_stat(stats['cells_trimmed'])}")
-            for line in _placeholder_lines(stats) + _numeric_lines(stats):
+            for line in _placeholder_lines(stats) + _numeric_lines(stats) + _fill_lines(stats):
                 st.write(("- " + line) if not line.startswith("  ") else ("&nbsp;&nbsp;&nbsp;&nbsp;" + line.strip()),
                          unsafe_allow_html=True)
 

@@ -8,6 +8,8 @@ no Streamlit code in here, so this logic can be tested and reused on its own.
 import numpy as np   # used to represent "missing" values (NaN)
 import pandas as pd
 
+from derive import apply_fills
+
 from quality import (
     DEFAULT_PLACEHOLDERS, NUMERIC_SHARE, has_identifier_name, is_blank, is_phone_like, is_placeholder,
     normalize_placeholders, parse_number, real_values,
@@ -175,10 +177,11 @@ def remove_empty_rows_and_columns(df: pd.DataFrame):
 
 def clean_dataframe_with_steps(df: pd.DataFrame, steps: dict, options: dict = None):
     """Run only the cleaning steps the user left turned on, in a fixed,
-    sensible order: headers -> trim -> placeholders -> numbers -> duplicates -> empty.
+    sensible order: headers -> trim -> placeholders -> numbers -> duplicates -> empty -> fills.
     'steps' is a dict like {"headers": True, "trim": True, ...}; steps that
     aren't in the dict are not run. 'options' carries settings such as the
-    placeholder list: {"placeholders": ["ERROR", "UNKNOWN"]}.
+    placeholder list and the approved relationships to fill from:
+    {"placeholders": ["ERROR", "UNKNOWN"], "relationships": [...from derive.detect_relationships...]}.
 
     For every step, we record what it did in `stats`. A value of None means
     "this step was skipped", so the report can tell 'skipped' apart from
@@ -223,5 +226,12 @@ def clean_dataframe_with_steps(df: pd.DataFrame, steps: dict, options: dict = No
         df, rows_removed, columns_removed = remove_empty_rows_and_columns(df)
         stats["empty_rows_removed"] = rows_removed
         stats["empty_columns_removed"] = columns_removed
+
+    # Fill gaps last, only from relationships the user approved, and only on
+    # the rows that survived deduplication / empty-row removal.
+    if "fills" in steps:
+        stats["fills"] = None
+        if steps["fills"]:
+            df, stats["fills"] = apply_fills(df, options.get("relationships", []))
 
     return df, stats

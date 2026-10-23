@@ -33,6 +33,7 @@ import json
 import streamlit as st  # the web UI framework
 
 from cleaning import clean_dataframe_with_steps
+from derive import detect_relationships
 from io_utils import load_sheets, convert_to_download_bytes
 from report import build_report_text, render_summary_panel
 from locales import LOCALES, DEFAULT_LOCALE
@@ -40,6 +41,15 @@ from quality import DEFAULT_PLACEHOLDERS, columns_with_inconsistent_casing, pars
 import ai_rules
 import rule_engine
 import recipes
+
+
+@st.cache_data(show_spinner="Looking for relationships between columns ...")
+def detect_for_sheet(df, steps, placeholders):
+    """Clean a copy of one sheet (without the fill step) and look for columns
+    that can be calculated from each other. Cached so it only re-runs when the
+    data or the cleaning settings change."""
+    prepared, _ = clean_dataframe_with_steps(df.copy(), {**steps, "fills": False}, {"placeholders": list(placeholders)})
+    return detect_relationships(prepared)
 
 
 def collect_unique_approved_rules(suggested_rules_by_sheet: dict) -> list:
@@ -174,8 +184,35 @@ if uploaded_file is not None:
         "headers": do_headers, "trim": do_trim, "duplicates": do_duplicates, "empty": do_empty,
         "placeholders": do_placeholders, "numeric": do_numeric,
     }
+    steps["fills"] = True  # which relationships get used is decided by the tick boxes below
     placeholder_list = parse_placeholder_text(placeholder_text)
     options = {"placeholders": placeholder_list}
+
+    # --- Fill missing values from other columns (relationships found automatically) ---
+    approved_relationships = {name: [] for name in sheets_to_clean}
+    detected = {name: detect_for_sheet(sheets[name], steps, tuple(placeholder_list)) for name in sheets_to_clean}
+    if any(found["products"] or found["lookups"] for found in detected.values()):
+        st.subheader("Fill missing values from other columns")
+        st.caption(
+            "Found automatically in your data. A missing value is only filled when it can be worked out "
+            "from the other values in the same row, and existing values are never changed."
+        )
+        for name, found in detected.items():
+            prefix = f"[{name}] " if len(sheets_to_clean) > 1 else ""
+            for relationship in found["products"]:
+                if st.checkbox(
+                    prefix + relationship["label"], value=True, key=f"rel_{name}_{relationship['label']}",
+                    help="Exact arithmetic: this holds on every row where all three values are present, so a "
+                         "missing one can be calculated exactly.",
+                ):
+                    approved_relationships[name].append(relationship)
+            for relationship in found["lookups"]:
+                if st.checkbox(
+                    prefix + relationship["label"], value=False, key=f"rel_{name}_{relationship['label']}",
+                    help="Inferred from this file, not arithmetic: it held for every row here, but it is a "
+                         "pattern, not a law. Off by default - tick it if you trust the pattern.",
+                ):
+                    approved_relationships[name].append(relationship)
 
     # --- "Clean File" button ---
     if st.button("Clean File"):
@@ -184,7 +221,8 @@ if uploaded_file is not None:
 
         for name, original_df in sheets.items():
             if name in sheets_to_clean:
-                cleaned_df, stats = clean_dataframe_with_steps(original_df.copy(), steps, options)
+                sheet_options = {**options, "relationships": approved_relationships.get(name, [])}
+                cleaned_df, stats = clean_dataframe_with_steps(original_df.copy(), steps, sheet_options)
                 sheet_stats[name] = {"cleaned": True, "stats": stats}
             else:
                 # Not selected for cleaning - keep this sheet exactly as uploaded.
