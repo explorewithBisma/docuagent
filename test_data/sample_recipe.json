@@ -1,0 +1,52 @@
+{
+  "recipe_name": "Messy Sample Recipe",
+  "locale": "PK",
+  "rules": [
+    {
+      "id": "rule_1",
+      "column": "Phone",
+      "rule_type": "normalize_phone",
+      "params": {
+        "country": "PK"
+      },
+      "description": "Normalize Pakistani phone numbers to E.164 (+92...).",
+      "confidence": "high",
+      "approved": true
+    },
+    {
+      "id": "rule_2",
+      "column": "Status",
+      "rule_type": "unify_casing",
+      "params": {
+        "style": "title"
+      },
+      "description": "Use Title Case for Status (active/ACTIVE -> Active).",
+      "confidence": "high",
+      "approved": true
+    },
+    {
+      "id": "rule_3",
+      "column": "Signup Date",
+      "rule_type": "parse_date",
+      "params": {
+        "output_format": "%Y-%m-%d",
+        "day_first": true
+      },
+      "description": "Write Signup Date in ISO format (YYYY-MM-DD).",
+      "confidence": "high",
+      "approved": true
+    },
+    {
+      "id": "rule_4",
+      "column": "Amount Paid",
+      "rule_type": "strip_currency_to_number",
+      "params": {
+        "currency_symbol": "Rs",
+        "decimal_places": 2
+      },
+      "description": "Convert Amount Paid (Rs. 1,500/-, $20, 1500) to plain numbers.",
+      "confidence": "high",
+      "approved": true
+    }
+  ]
+}

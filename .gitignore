@@ -1,0 +1,19 @@
+# Secrets / API keys - never commit these
+.env
+.env.*
+*.env
+.streamlit/secrets.toml
+secrets.toml
+*.pem
+*.key
+credentials*.json
+service-account*.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Local output
+*.log
