@@ -210,6 +210,9 @@ rule is shown, the whole column is checked on your machine.
   with a second part above 12, it is day-first - and the reverse means month-first. A `parse_date`
   rule that says otherwise is corrected, with a note under the rule. If the data cannot decide, the
   locale default is used and the note says so.
+- *Loaded recipes and saved AI-suggestion files:* the date-order check runs on them too, but a loaded
+  rule is never changed silently. If the data contradicts the saved order, the rule is unticked and a
+  warning offers a one-click "Use the corrected date order" fix; otherwise it is kept as saved, with a note.
 - *Casing:* a category column holding the same word in different capitalisations (`delivered` /
   `Delivered`) gets a `unify_casing` suggestion marked "Detected locally" - unless a `map_values` or
   `unify_casing` rule already covers it. IDs, names, emails and phone columns are never suggested.

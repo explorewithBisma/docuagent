@@ -50,7 +50,7 @@ from quality import (
 import ai_rules
 import rule_engine
 import recipes
-from rule_checks import preview_rule, preview_text, review_rules
+from rule_checks import preview_rule, preview_text, review_loaded_rules, review_rules
 
 
 @st.cache_data(show_spinner="Looking for relationships between columns ...")
@@ -66,6 +66,16 @@ def detect_for_sheet(df, steps, placeholders):
 def cached_flags(df, placeholders):
     """Implausible-value flags for a sheet (cached for the same reason as the profile)."""
     return find_flags(df, list(placeholders))
+
+
+def use_corrected_rule(sheet_name, rule_id, checkbox_key):
+    """One-click fix for a loaded date rule the data contradicted: switch to the corrected date order and tick it."""
+    note = st.session_state.rule_notes_by_sheet[sheet_name][rule_id]
+    rule = next(r for r in st.session_state.suggested_rules_by_sheet[sheet_name] if r["id"] == rule_id)
+    rule["params"] = dict(note.pop("fix_params"))
+    rule["approved"] = True
+    st.session_state[checkbox_key] = True
+    note["note"] = "Corrected to the date order the data proves (" + ("day-first" if rule["params"]["day_first"] else "month-first") + "); ticked."
 
 
 @st.cache_data(show_spinner=False)
@@ -414,8 +424,14 @@ if st.session_state.cleaned_sheets is not None:
                         sheet_name: [dict(copy.deepcopy(rule), approved=recipes.is_ticked(rule)) for rule in recipe["rules"]]
                         for sheet_name in cleaned_sheets.keys()
                     }
+                    # Check each loaded date rule against THIS file's data: kept as saved, but unticked + warned if contradicted
+                    rule_notes_by_sheet = {}
+                    for sheet_name in loaded_rules_by_sheet:
+                        loaded_rules_by_sheet[sheet_name], rule_notes_by_sheet[sheet_name] = review_loaded_rules(
+                            cleaned_sheets[sheet_name], loaded_rules_by_sheet[sheet_name], locale_code, placeholders_in_effect
+                        )
                     st.session_state.suggested_rules_by_sheet = loaded_rules_by_sheet
-                    st.session_state.rule_notes_by_sheet = None
+                    st.session_state.rule_notes_by_sheet = rule_notes_by_sheet
                     # A saved AI-suggestions file says who suggested the rules; a plain recipe does not.
                     st.session_state.suggestion_info = (
                         {"provider": recipe["provider"], "model": recipe.get("model", "?"), "dropped": [],
@@ -424,7 +440,7 @@ if st.session_state.cleaned_sheets is not None:
                     )
                     st.session_state.rule_outcomes_by_sheet = None
                     st.session_state.rules_batch_id += 1
-                    ticked = sum(1 for rule in recipe["rules"] if recipes.is_ticked(rule))
+                    ticked = sum(1 for rule in next(iter(loaded_rules_by_sheet.values()), []) if rule["approved"])
                     kind = "AI suggestions" if isinstance(recipe.get("provider"), str) else "recipe"
                     st.success(
                         f"Loaded {kind} '{recipe.get('recipe_name', 'Untitled')}' with {len(recipe['rules'])} rule(s) - "
@@ -547,7 +563,11 @@ if st.session_state.cleaned_sheets is not None:
                         )
                         rule["approved"] = checked
                         note = ((st.session_state.rule_notes_by_sheet or {}).get(sheet_name) or {}).get(rule["id"])
-                        if note:
+                        if note and note.get("fix_params"):
+                            st.warning(note["note"])
+                            st.button("Use the corrected date order", key=f"fix_{checkbox_key}", on_click=use_corrected_rule,
+                                      args=(sheet_name, rule["id"], checkbox_key))
+                        elif note:
                             st.caption(("🔎 **Detected locally.** " if note["source"] == "local" else "🔎 ") + note["note"])
                         if rule["column"] in cleaned_sheets[sheet_name].columns:
                             preview = cached_rule_preview(

@@ -79,6 +79,13 @@ def _format_is_day_first(input_format: str):
     return None
 
 
+def _saved_day_first(params: dict) -> bool:
+    """The date order a parse_date rule's params actually use (its input_format wins over day_first)."""
+    input_format = params.get("input_format")
+    from_format = _format_is_day_first(input_format) if input_format else None
+    return from_format if from_format is not None else bool(params.get("day_first", False))
+
+
 def check_date_rule(rule: dict, series: pd.Series, locale_code: str, placeholders=()):
     """Return (rule, note) for a parse_date rule: the rule corrected if the data
     proves its day_first / input_format wrong, and a short note saying what was
@@ -92,9 +99,7 @@ def check_date_rule(rule: dict, series: pd.Series, locale_code: str, placeholder
     order = found["order"]
 
     input_format = params.get("input_format")
-    chosen_day_first = _format_is_day_first(input_format) if input_format else None
-    if chosen_day_first is None:
-        chosen_day_first = params.get("day_first", False)
+    chosen_day_first = _saved_day_first(params)
 
     if order in ("day_first", "month_first"):
         data_day_first = order == "day_first"
@@ -121,6 +126,34 @@ def check_date_rule(rule: dict, series: pd.Series, locale_code: str, placeholder
     if not input_format:
         params["day_first"] = locale_day_first
     return rule, {"note": note, "kind": "date_order"}
+
+
+def check_loaded_date_rule(rule: dict, series: pd.Series, locale_code: str, placeholders=()):
+    """The same date-order check for a rule that was LOADED from a recipe or a saved
+    AI-suggestions file. A loaded rule is never changed silently: it comes back exactly as
+    saved, with an info dict
+      {"kind": "contradicted", "note": warning, "fix_params": corrected params}  - the data proves the saved order wrong
+      {"kind": "kept", "note": ...}                                               - the data agrees, or cannot tell
+    or (rule, None) for any rule that is not a parse_date rule."""
+    if rule.get("rule_type") != "parse_date":
+        return rule, None
+    saved_day_first = _saved_day_first(rule["params"])
+    found = detect_date_order(series, placeholders)
+    saved_name = "day-first" if saved_day_first else "month-first"
+    if found["order"] in ("day_first", "month_first") and (found["order"] == "day_first") != saved_day_first:
+        data_day_first = found["order"] == "day_first"
+        name = "day-first" if data_day_first else "month-first"
+        count = found["day_first_count"] if data_day_first else found["month_first_count"]
+        example = found["day_example"] if data_day_first else found["month_example"]
+        corrected, _ = check_date_rule(rule, series, locale_code, placeholders)
+        return rule, {"kind": "contradicted", "fix_params": corrected["params"],
+                      "note": f"This rule says {saved_name}, but {count} values like {example} can only be {name}. "
+                              f"It has been unticked. Use {name} instead?"}
+    if found["order"] in ("day_first", "month_first"):
+        count = found["day_first_count"] if found["order"] == "day_first" else found["month_first_count"]
+        return rule, {"kind": "kept", "note": f"Kept as saved ({saved_name}): the data agrees ({count} values can only be {saved_name})."}
+    reason = "the dates are inconsistent" if found["order"] == "mixed" else "the data cannot tell day-first from month-first"
+    return rule, {"kind": "kept", "note": f"Kept as saved ({saved_name}): {reason}."}
 
 
 # ---------------------------------------------------------------------------
@@ -231,4 +264,23 @@ def review_rules(df: pd.DataFrame, rules: list, locale_code: str, placeholders=(
         if not validate_rule(rule, available, known):
             reviewed.append(rule)
             notes[rule["id"]] = {"note": "This column has the same word in different capitalisations (the AI did not suggest it).", "source": "local"}
+    return reviewed, notes
+
+
+def review_loaded_rules(df: pd.DataFrame, rules: list, locale_code: str, placeholders=()):
+    """Date-order check for a sheet's LOADED rules. Returns (rules, notes): every rule as saved,
+    except that one whose date order the data contradicts is unticked (approved = False); notes are
+    {rule_id: {"note", "source": None, "fix_params": ... (only when contradicted)}}."""
+    notes = {}
+    reviewed = []
+    for rule in rules:
+        rule = copy.deepcopy(rule)
+        if (rule.get("rule_type") == "parse_date" and "id" in rule and rule.get("column") in df.columns
+                and isinstance(rule.get("params"), dict)):
+            _, info = check_loaded_date_rule(rule, df[rule["column"]], locale_code, placeholders)
+            notes[rule["id"]] = {"note": info["note"], "source": None}
+            if info["kind"] == "contradicted":
+                rule["approved"] = False
+                notes[rule["id"]]["fix_params"] = info["fix_params"]
+        reviewed.append(rule)
     return reviewed, notes
