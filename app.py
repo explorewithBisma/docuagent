@@ -50,6 +50,7 @@ from quality import (
 import ai_rules
 import rule_engine
 import recipes
+from rule_checks import preview_rule, preview_text, review_rules
 
 
 @st.cache_data(show_spinner="Looking for relationships between columns ...")
@@ -65,6 +66,13 @@ def detect_for_sheet(df, steps, placeholders):
 def cached_flags(df, placeholders):
     """Implausible-value flags for a sheet (cached for the same reason as the profile)."""
     return find_flags(df, list(placeholders))
+
+
+@st.cache_data(show_spinner=False)
+def cached_rule_preview(series, rule_type, column, params_json, placeholders):
+    """Before -> after preview of one rule on its column (cached: a checkbox click must not re-run every rule)."""
+    rule = {"column": column, "rule_type": rule_type, "params": json.loads(params_json)}
+    return preview_rule(series, rule, list(placeholders))
 
 
 @st.cache_data(show_spinner=False)
@@ -130,6 +138,7 @@ SESSION_KEYS = (
     "cleaned_sheets", "sheet_stats", "report_text", "original_filename", "is_csv",
     "suggested_rules_by_sheet", "rule_outcomes_by_sheet", "suggestion_info", "placeholder_list", "quality_before",
     "change_logs", "original_rows", "data_version", "records_cache", "flagging_enabled", "flags_before",
+    "rule_notes_by_sheet",
 )
 for key in SESSION_KEYS:
     if key not in st.session_state:
@@ -406,6 +415,7 @@ if st.session_state.cleaned_sheets is not None:
                         for sheet_name in cleaned_sheets.keys()
                     }
                     st.session_state.suggested_rules_by_sheet = loaded_rules_by_sheet
+                    st.session_state.rule_notes_by_sheet = None
                     # A saved AI-suggestions file says who suggested the rules; a plain recipe does not.
                     st.session_state.suggestion_info = (
                         {"provider": recipe["provider"], "model": recipe.get("model", "?"), "dropped": [],
@@ -434,6 +444,7 @@ if st.session_state.cleaned_sheets is not None:
 
         if st.button("Suggest Cleaning Rules"):
             suggested_rules_by_sheet = {}
+            rule_notes_by_sheet = {}
             suggestion_info = None  # which provider/model answered, plus any discarded suggestions
             try:
                 provider = ai_rules.select_provider()
@@ -452,7 +463,10 @@ if st.session_state.cleaned_sheets is not None:
                             known_values={column: casefolded_values(df[column], placeholders_in_effect)
                                           for column in df.columns if df[column].dtype == object},
                         )
-                        rules = result["rules"]  # already validated; start unchecked
+                        # Local safety checks: fix a date order the data contradicts, add casing rules the AI missed
+                        rules, rule_notes_by_sheet[sheet_name] = review_rules(
+                            df, result["rules"], locale_code, placeholders_in_effect
+                        )  # already validated; start unchecked
                         if suggestion_info is None:
                             suggestion_info = {"provider": result["provider"], "model": result["model"], "dropped": [],
                                                "full_lists": {}}
@@ -464,6 +478,7 @@ if st.session_state.cleaned_sheets is not None:
                         st.error(f"Could not get AI suggestions for sheet '{sheet_name}': {error}")
                 suggested_rules_by_sheet[sheet_name] = rules
             st.session_state.suggested_rules_by_sheet = suggested_rules_by_sheet
+            st.session_state.rule_notes_by_sheet = rule_notes_by_sheet
             st.session_state.suggestion_info = suggestion_info
             st.session_state.rule_outcomes_by_sheet = None
             st.session_state.rules_batch_id += 1
@@ -531,6 +546,15 @@ if st.session_state.cleaned_sheets is not None:
                                  f"(confidence: {rule.get('confidence', 'n/a')}) - params: {rule['params']}",
                         )
                         rule["approved"] = checked
+                        note = ((st.session_state.rule_notes_by_sheet or {}).get(sheet_name) or {}).get(rule["id"])
+                        if note:
+                            st.caption(("🔎 **Detected locally.** " if note["source"] == "local" else "🔎 ") + note["note"])
+                        if rule["column"] in cleaned_sheets[sheet_name].columns:
+                            preview = cached_rule_preview(
+                                cleaned_sheets[sheet_name][rule["column"]], rule["rule_type"], rule["column"],
+                                json.dumps(rule["params"], sort_keys=True), tuple(placeholders_in_effect),
+                            )
+                            st.caption("Preview: " + preview_text(preview))
 
                 if st.button("Apply Approved Rules"):
                     updated_sheets = {}

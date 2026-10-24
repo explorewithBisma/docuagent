@@ -204,6 +204,18 @@ date. Load that file later under "Load a saved recipe" and you get the same
 review screen with **nothing pre-ticked** - handy for reviewing on another day
 without paying for another AI call.
 
+**Local safety checks on suggestions** (`rule_checks.py`, no AI involved): before a suggested
+rule is shown, the whole column is checked on your machine.
+- *Date order:* if a numeric date column has values like `25/12/2024` (first part above 12) and none
+  with a second part above 12, it is day-first - and the reverse means month-first. A `parse_date`
+  rule that says otherwise is corrected, with a note under the rule. If the data cannot decide, the
+  locale default is used and the note says so.
+- *Casing:* a category column holding the same word in different capitalisations (`delivered` /
+  `Delivered`) gets a `unify_casing` suggestion marked "Detected locally" - unless a `map_values` or
+  `unify_casing` rule already covers it. IDs, names, emails and phone columns are never suggested.
+- *Preview:* every suggested rule shows up to 3 before -> after examples and how many cells it
+  would convert, leave as they are, or fail - computed on a copy, so nothing changes until you apply.
+
 **Recipes:** once you've approved a set of rules, you can save them as a
 reusable `.json` recipe file - the **Download Recipe (.json)** button appears
 in the AI panel right after "Apply Approved Rules" succeeds (and a copy labelled
