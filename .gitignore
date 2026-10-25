@@ -18,3 +18,7 @@ venv/
 # Local output
 *.log
 tests/fixtures/test_recipe.json
+
+# Personal financial data - never commit
+test_data/Daily_Budget_Tracker_*personal*.xlsx
+test_data/*personal*
