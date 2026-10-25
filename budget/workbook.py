@@ -320,7 +320,7 @@ def _build_dashboard(wb, config: BudgetConfig) -> None:
         ws.cell(row=row, column=5, value=f'=IF(A{row}="","",IF(B{row}=0,"",C{row}/B{row}))').number_format = "0%"
         ws.cell(row=row, column=6, value=(
             f'=IF(A{row}="","",IF(B{row}=0,IF(C{row}>0,"No budget",""),IF(C{row}>B{row},"OVER","OK")))'))
-        key = ws.cell(row=row, column=7, value=f'=IF(A{row}="","",C{row}+ROW()/1000000000)')
+        key = ws.cell(row=row, column=7, value=f'=IF(A{row}="","",C{row}-ROW()/1000000000)')
         key.font, key.number_format = Font(color="9CA3AF", size=8), "0.00"
         for column in range(1, 7):
             ws.cell(row=row, column=column).border = BOX
