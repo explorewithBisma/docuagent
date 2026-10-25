@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "categories": {
+    "Food":          ["grocery", "groceries", "supermarket", "restaurant", "cafe", "coffee", "lunch", "dinner", "breakfast", "pizza", "burger", "bakery", "snack", "takeaway", "food"],
+    "Transport":     ["taxi", "uber", "careem", "metro", "bus", "train", "fuel", "petrol", "diesel", "parking", "toll", "ride", "salik"],
+    "Bills":         ["electricity", "water bill", "internet", "wifi", "phone bill", "mobile bill", "rent", "gas bill", "insurance", "subscription"],
+    "Shopping":      ["clothes", "shoes", "mall", "amazon", "noon", "gift", "electronics"],
+    "Health":        ["pharmacy", "doctor", "clinic", "hospital", "medicine", "dentist", "gym"],
+    "Entertainment": ["cinema", "movie", "netflix", "spotify", "game", "concert", "outing"]
+  },
+  "type_keywords": {
+    "Income":            ["salary", "bonus", "freelance", "refund", "cashback", "interest earned", "income"],
+    "Loan received":     ["loan received", "borrowed", "loan disbursed"],
+    "Loan payment":      ["emi", "loan repayment", "loan payment", "instalment", "installment", "mortgage"],
+    "Saving":            ["savings", "saving", "fixed deposit", "deposit to savings", "investment"],
+    "Card bill payment": ["credit card bill", "card bill", "credit card payment", "card payment", "cc payment", "cc bill"]
+  }
+}
