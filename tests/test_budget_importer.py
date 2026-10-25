@@ -165,3 +165,34 @@ assert (parse("1,200"), parse("Rs. 1,200/-"), parse("$45.50"), parse("(45)"), pa
        (1200, 1200, 45.5, -45, -45, 12, 30)
 assert parse("abc") is None and parse(None) is None and parse("") is None and parse(True) is None
 print("PASSED")
+
+
+print("TEST: a template-style log - long headers, '#' counter, notes column, pre-filled payment methods, footer text")
+template = sheet(
+    ["LOG TITLE", None, None, None, None, None, None],
+    ["Fill in the blue cells", None, None, None, None, None, None],
+    ["#", "Date", "Description / What did you spend on?", "Category", "Amount (AED)", "Payment Method", "Notes"],
+    [1, date(2026, 6, 1), "Resturant", "Food/Grocery", 5, "Debit Card", None],
+    [None, None, "Grocery", "Food/Grocery", 6, "Debit Card", None],
+    [None, None, None, None, None, "Debit Card", None],                  # an empty template row: only the payment method
+    [2, date(2026, 6, 2), "Taxi", None, 15, "Debit Card", "late"],
+    [None, None, "credit card", None, None, None, None],                 # a label with no amount
+    [None, None, "TOTAL", None, 26, None, None],
+    [None, "Categories: Housing, Food ...", None, None, None, None, None],         # footer text in the date column
+)
+layout = importer.detect_layout(template)
+assert layout["columns"] == {"date": 1, "description": 2, "category": 3, "amount": 4, "payment": 5}, layout
+assert layout["ignored"] == ["#", "Notes"]
+out = run(template)
+assert list(out.rows["Description"]) == ["Resturant", "Grocery", "Taxi"] and out.stats["blank_rows"] == 1
+assert out.stats["fill_down"] == 1 and list(out.rows["Date"]) == [date(2026, 6, 1), date(2026, 6, 1), date(2026, 6, 2)]
+assert sorted(out.dropped["Description"]) == ["", "TOTAL", "credit card"] and (out.dropped["Reason"].str.startswith("No amount")).sum() == 2
+assert not any("ambiguous" in note for note in out.notes), "footer text is not a date that needs a day/month decision"
+assert out.dropped["Amount"].dtype.kind == "f", "the dropped list has a plain numeric Amount column"
+print("PASSED")
+
+print("TEST: header words inside longer headers")
+for header, role in {"Amount (AED)": "amount", "Payment Method": "payment", "Date Received": "date", "Description / What did you spend on?":
+                     "description", "Category": "category", "Debit": "debit", "Notes": "description", "#": "", "Total balance": ""}.items():
+    assert importer._header_role(header) == role, (header, importer._header_role(header))
+print("PASSED")

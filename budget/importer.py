@@ -54,6 +54,7 @@ TYPE_WORDS = {
 
 _CURRENCY_TEXT = re.compile(r"(?i)(rs\.?|pkr|inr|aed|usd|eur|gbp|dhs?|dirhams?|[$£€₹]|/-|only)")
 _EXCEL_SERIAL_RANGE = (20000, 80000)
+_NUMERIC_TEXT_DATE = re.compile(r"^\s*\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4}\s*$")     # 03/04/2026 - the only text that needs a day/month decision
 
 
 @dataclass
@@ -85,12 +86,27 @@ def read_raw_sheets(file_bytes: bytes, is_csv: bool = False) -> dict:
 # LAYOUT
 # ---------------------------------------------------------------------------
 
+# Words that name a role even inside a longer header ("Amount (AED)", "Description / What did you spend on?").
+# Ordered: the first role with a hit wins. Short or common words are left out on purpose.
+HEADER_TOKENS = (
+    ("payment", ("payment", "paid")), ("category", ("category", "categories")),
+    ("amount", ("amount", "cost", "price", "amt")), ("debit", ("debit", "withdrawal")), ("credit", ("credit", "deposit")),
+    ("date", ("date",)), ("type", ("type",)),
+    ("description", ("description", "details", "particulars", "narration", "item", "items")),
+)
+
+
 def _header_role(text) -> str:
-    """The column role a header cell names ('' if none). Exact match on the whole cell, ignoring case."""
+    """The column role a header cell names ('' if none): the whole cell matches a known header, or it contains a
+    clear key word ("Amount (AED)" is an amount, "Payment Method" a payment method)."""
     key = re.sub(r"[^a-z ]", " ", str(text).casefold())
     key = re.sub(r"\s+", " ", key).strip()
     for role, words in HEADER_WORDS.items():
         if key in words:
+            return role
+    tokens = set(key.split())
+    for role, words in HEADER_TOKENS:
+        if tokens & set(words):
             return role
     return ""
 
@@ -235,7 +251,7 @@ def import_transactions(raw: pd.DataFrame, layout: dict, keyword_map: dict, loca
     date_values = list(body.iloc[:, columns["date"]]) if "date" in columns else []
     day_numbers_only = _day_of_month_column(date_values)
     day_first = LOCALES.get(locale_code, {}).get("day_first", True)
-    text_dates = pd.Series([v for v in date_values if isinstance(v, str)], dtype=object)
+    text_dates = pd.Series([v for v in date_values if isinstance(v, str) and _NUMERIC_TEXT_DATE.match(v)], dtype=object)
     if len(text_dates):
         found = detect_date_order(text_dates)
         if found["order"] in ("day_first", "month_first"):
@@ -277,7 +293,7 @@ def import_transactions(raw: pd.DataFrame, layout: dict, keyword_map: dict, loca
         category_cell = _clean_text(cell(row, "category"))
 
         if not description and amount is None and is_blank(date_cell) and not category_cell:
-            blank_rows += 1
+            blank_rows += 1                   # nothing but, say, a pre-filled payment method: an empty template row
             continue
 
         def drop(reason):
