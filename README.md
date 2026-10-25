@@ -417,3 +417,45 @@ page with Streamlit's `AppTest` - no browser, no API key, no network). The
 
 The uploaded file is only used in memory while the app is running — nothing
 is saved on disk, and your original file is never modified.
+
+
+---
+
+## Mode B: Build my budget sheet
+
+Start the app with `streamlit run main.py`. The start screen offers two modes: **Clean my Excel/CSV**
+(the cleaner described above, unchanged) and **Build my budget sheet**.
+
+Like the cleaner, the budget mode is *file in, better file out* - nothing is stored on the server and
+no AI is involved (categories come from an editable keyword map).
+
+**You can start from:**
+1. a messy personal budget workbook (a daily expense log: dates only on the first row of each day, empty
+   categories, hardcoded totals ...) - the app finds the header row and columns, fills dates down (flagged),
+   drops total rows (listed, restorable), guesses each row's Type and Category, and lists the descriptions
+   it could not place so you can assign them (and teach the keyword map);
+2. **last month's workbook made by this app** - it is recognised by its sheets and settings; the closing balance
+   becomes the new opening balance, and categories, budgets, payment methods and the keyword map are kept; the
+   Transactions sheet starts empty;
+3. nothing (a blank start).
+
+**The workbook you get** (`How to use`, `Dashboard`, `Transactions`, `Settings`, `Keywords`, and `Import Notes` for imports):
+- *Transactions*: Date, Description, Type, Category, Amount, Payment method - with dropdowns for Type, Category and
+  Payment method, room for 1,000 rows, rows outside the month greyed.
+- *Dashboard*: only formulas (SUMIFS ...): income, expenses, loan payments, loans received, **total saved this month**
+  (a separate box), net balance, opening and closing balance, spending vs budget per category (red when over), top 3
+  categories, daily totals, data checks, and three native charts.
+- *Types*: Income, Expense, Loan received, Loan payment, Saving, **Card bill payment**.
+
+**Credit cards, without double counting:** a purchase with a credit card is an **Expense** on the day it happens.
+Paying the card bill later is a **Card bill payment**: it is shown on its own line and is *not* part of expenses or of the
+net balance. Use **Loan payment** only for real loans / EMIs.
+
+Net balance = Income + Loan received - Expense - Loan payment - Saving. Closing balance = opening balance + net balance.
+
+The code is in the `budget/` package (`importer`, `categorize`, `workbook`, `carryover`, `prepare`, `model`) and
+`budget_app.py`; `app.py` (the cleaner) is untouched. The currency symbol is baked into the number formats when the
+file is made.
+
+**Tests:** the Dashboard formulas are recalculated without Excel with the `formulas` package
+(`pip install -r requirements-dev.txt`) and compared with plain pandas.

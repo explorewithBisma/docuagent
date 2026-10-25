@@ -496,7 +496,8 @@ def _build_import_notes(wb, import_info) -> None:
         ws.cell(row=row, column=1, value=int(record["Source row"]))
         _text(ws.cell(row=row, column=2), str(record["Description"]))
         amount = record["Amount"]
-        ws.cell(row=row, column=3, value=float(amount) if isinstance(amount, (int, float)) else str(amount))
+        if not is_blank(amount):
+            ws.cell(row=row, column=3, value=float(amount))
         _text(ws.cell(row=row, column=5), str(record["Reason"]))
         row += 1
 

@@ -282,7 +282,7 @@ def import_transactions(raw: pd.DataFrame, layout: dict, keyword_map: dict, loca
 
         def drop(reason):
             dropped.append({"Source row": source_row, "Description": description,
-                            "Amount": amount if amount is not None else _clean_text(amount_raw), "Reason": reason})
+                            "Amount": amount, "Reason": reason})
 
         if TOTAL_WORDS.search(description):
             drop("Looks like a total or balance line")
@@ -356,6 +356,7 @@ def import_transactions(raw: pd.DataFrame, layout: dict, keyword_map: dict, loca
 
     rows = pd.DataFrame(kept, columns=[*TX_COLUMNS, "Flags", "Source row"])
     dropped_frame = pd.DataFrame(dropped, columns=["Source row", "Description", "Amount", "Reason"])
+    dropped_frame["Amount"] = pd.to_numeric(dropped_frame["Amount"], errors="coerce")
     stats["dropped"] = len(dropped_frame)
     stats["blank_rows"] = blank_rows
     stats["rows"] = len(rows)
@@ -424,3 +425,14 @@ def flag_outside_month(rows: pd.DataFrame, month_start: date) -> pd.DataFrame:
 
     rows["Flags"] = rows.apply(update, axis=1) if len(rows) else rows["Flags"]
     return rows
+
+
+def guess_columns(raw: pd.DataFrame, header_row: int) -> dict:
+    """{role: column index} guessed from the header texts of one chosen row (for the manual column picker)."""
+    columns = {}
+    if 0 <= header_row < len(raw):
+        for column_index, value in enumerate(raw.iloc[header_row]):
+            role = _header_role(value) if not is_blank(value) else ""
+            if role and role not in columns:
+                columns[role] = column_index
+    return columns
