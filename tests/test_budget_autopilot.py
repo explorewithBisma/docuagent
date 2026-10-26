@@ -38,7 +38,7 @@ print("TEST: categories - own categories merged ('Food/Grocery' -> Food), keywor
 by_description = A.rows[A.rows["Type"] == "Expense"].set_index("Description")
 assert A.merges == {"Food/Grocery": "Food"}
 assert A.rows.loc[A.rows["Description"] == "Grocery", "Category"].iloc[0] == "Food"
-assert by_description.loc["Taxi", "Category"] == "Transport" and by_description.loc["Room rent", "Category"] == "Bills"
+assert by_description.loc["Taxi", "Category"] == "Transport" and by_description.loc["Room rent", "Category"] == "Housing"       # 'rent' is a Housing keyword now
 resturant = A.rows[A.rows["Description"] == "Resturant"]
 assert list(resturant["Category"]) == ["Food", "Food"]
 assert resturant["Flags"].str.contains("category guessed: looks like 'restaurant'").sum() == 1, "only the typo-matched row says so"
@@ -51,7 +51,8 @@ cfg = A.config
 assert cfg.currency == "AED" and cfg.month_start == date(2026, 6, 1) and cfg.opening_balance == 11236
 assert cfg.categories["Food"] == 1000 and cfg.categories["Health"] == 500 and cfg.categories["Housing"] == 2000
 assert cfg.categories["Transport"] == 0 and "Bills" in cfg.categories and "🏠" not in "".join(cfg.categories)
-assert any("Added the category 'Housing'" in n for n in A.notes)
+assert {"Housing", "Family / Remittance", "Other"} <= set(cfg.categories)
+assert not any("Added the category 'Housing'" in n for n in A.notes), "Housing is a default category now"
 assert "Debit Card" in cfg.payment_methods and "Cash" in cfg.payment_methods
 print("PASSED")
 

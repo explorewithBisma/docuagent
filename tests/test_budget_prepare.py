@@ -19,7 +19,7 @@ IMPORT = importer.import_transactions(raw[name], layout, KM, "PK", date(2026, 6,
 
 print("TEST: starting categories - keyword-map categories plus the file's own; existing settings win")
 cats = prepare.starting_categories(KM, IMPORT.rows)
-assert list(cats)[:6] == list(KM["categories"]) and cats["Pets"] == 0 and "pets" not in {c.casefold() for c in KM["categories"]}
+assert list(cats)[:len(KM["categories"])] == list(KM["categories"]) and cats["Pets"] == 0 and "pets" not in {c.casefold() for c in KM["categories"]}
 assert all(budget == 0 for budget in cats.values())
 existing = prepare.starting_categories(KM, IMPORT.rows, {"Food": 300})
 assert existing["Food"] == 300 and "Pets" in existing and "Transport" in existing, existing   # categories the rows use are added

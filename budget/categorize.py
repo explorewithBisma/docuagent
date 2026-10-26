@@ -9,9 +9,9 @@ Map format (JSON, see budget/default_keywords.json):
    "categories":    {"Food": ["grocery", "restaurant"], "Transport": ["taxi", "metro"]},
    "type_keywords": {"Income": ["salary"], "Loan payment": ["emi"], ...}}
 
-Matching: ignores capitals and surrounding spaces. A keyword of 3 characters or fewer must
-match a whole word ("bus" does not match "business"); longer keywords match anywhere in the
-text. When several categories match, the longest keyword wins; on a tie the category that
+Matching: ignores capitals and surrounding spaces. A keyword of 4 characters or fewer must
+match a whole word, optionally in the plural ("rent" matches "Room rent" and "rents" but not
+"current"; "room" does not match "mushroom"); longer keywords match anywhere in the text. When several categories match, the longest keyword wins; on a tie the category that
 comes first in the map wins.
 """
 
@@ -23,7 +23,7 @@ from budget.model import TYPES
 from quality import is_blank
 
 DEFAULT_MAP_PATH = Path(__file__).with_name("default_keywords.json")
-SHORT_KEYWORD = 3
+SHORT_KEYWORD = 4
 
 
 def default_keyword_map() -> dict:
@@ -90,7 +90,7 @@ def _hits(text: str, keyword: str) -> bool:
     if not keyword:
         return False
     if len(keyword) <= SHORT_KEYWORD:
-        return re.search(rf"(?<!\w){re.escape(keyword)}(?!\w)", text) is not None
+        return re.search(rf"(?<!\w){re.escape(keyword)}(?:e?s)?(?!\w)", text) is not None
     return keyword in text
 
 

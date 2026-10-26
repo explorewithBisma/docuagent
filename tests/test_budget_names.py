@@ -23,7 +23,7 @@ assert names.match_name("🍔 Food", OURS) == ("Food", "exact")
 assert names.match_name("transport", OURS) == ("Transport", "exact")
 assert names.match_name("Transprt", OURS) == ("Transport", "typo")
 assert names.match_name("Entertainmnt", OURS) == ("Entertainment", "typo")
-assert names.match_name("Housing", OURS) == (None, "") and names.match_name("", OURS) == (None, "") and names.match_name(None, OURS) == (None, "")
+assert names.match_name("Housing", OURS) == ("Housing", "exact") and names.match_name("Pets", OURS) == (None, "") and names.match_name("", OURS) == (None, "") and names.match_name(None, OURS) == (None, "")
 assert names.match_name("Bil", OURS) == (None, ""), "short words are never matched loosely"
 print("PASSED")
 

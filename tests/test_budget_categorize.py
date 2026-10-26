@@ -82,3 +82,28 @@ problems = " ".join(bad.validate())
 assert "1st" in problems and "unique" in problems and "no name" in problems
 assert BudgetConfig(categories={"A": -5}).validate()
 print("PASSED")
+
+
+print("TEST: Housing, Family / Remittance and Other are default categories; rent moved from Bills to Housing")
+assert {"Housing", "Family / Remittance", "Other"} <= set(KM["categories"])
+assert "rent" not in KM["categories"]["Bills"] and {"rent", "room", "villa", "flat"} == set(KM["categories"]["Housing"])
+assert KM["categories"]["Family / Remittance"] == ["remittance", "send money", "transfer home", "taptap send", "western union", "exchange"]
+assert KM["categories"]["Other"] == [] and kw.validate_keyword_map(KM) == ""
+for text, expected in {"Room rent": "Housing", "Villa advance": "Housing", "Flat 3 deposit": "Housing", "Monthly rents": "Housing",
+                       "Send money to mom": "Family / Remittance", "TapTap Send": "Family / Remittance",
+                       "Western Union": "Family / Remittance", "currency EXCHANGE": "Family / Remittance",
+                       "Internet bill": "Bills", "electricity": "Bills"}.items():
+    assert kw.match_category(text, KM) == expected, (text, kw.match_category(text, KM))
+print("PASSED")
+
+print("TEST: 4-letter keywords are whole words (with an optional plural): 'room' is not 'mushroom', 'rent' is not 'current'")
+for text in ("mushroom soup", "bathroom cleaner", "current account", "parent visit", "different shop", "inflation"):
+    assert kw.match_category(text, KM) is None, (text, kw.match_category(text, KM))
+assert kw.match_category("taxis", KM) == "Transport" and kw.match_category("buses", KM) == "Transport"
+assert kw.match_category("TapTap", KM) is None, "a bare brand name is not guessed: it goes to the AI step / the Please-check list"
+assert kw.match_category("rent-a-car", KM) == "Housing"          # a hyphen separates words
+print("PASSED")
+
+print("TEST: the empty 'Other' category survives the table round trip")
+assert kw.keyword_map_from_rows(kw.keyword_map_to_rows(KM), KM["type_keywords"])["categories"]["Other"] == []
+print("PASSED")
