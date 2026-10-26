@@ -217,7 +217,7 @@ def check_ranges(ctx):
                         where = f"{target}!{a1(first, arg.c1)}" + (f":{a1(last, arg.c1)}" if last != first else "")
                         ctx.add(Issue(
                             "range_short", "medium", f"{cell.sheet}!{cell.coord}: the range stops before the data does",
-                            f"=" f"{call.name}(...{arg.text.split('!')[-1]}) ends at row {arg.r2}, but {len(after)} more row(s) of numbers follow "
+                            f"The {call.name} range {arg.text.split(chr(33))[-1]} ends at row {arg.r2}, but {len(after)} more row(s) of numbers follow "
                             f"directly below ({where}), worth {money(hidden)}. They are not included.",
                             evidence=f"{cell.coord}: ={cell.formula}", locations=[(cell.sheet, cell.coord)], impact=abs(hidden),
                             fix=f"Extend the range to row {last}."))
