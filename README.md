@@ -485,6 +485,6 @@ the app is - plus a short **Please check** list of only the uncertain things. Cl
 
 **Doughnut chart:** the "Spending by category" chart shows only the category name and its percentage, with the legend
 on the right. Categories are ranked by spending; a slice under 3% of the total gets no label (the share is the
-*Doughnut chart: hide slices under* setting on the Settings sheet) and is added to one "Other (under 3%)" slice. The chart
+*Doughnut chart: hide slices under* setting on the Settings sheet) and is added to one "Small categories (under 3%)" slice. The chart
 reads its own small formula table in columns AA:AC of the Dashboard (not hidden: Excel does not draw data from hidden
 columns).

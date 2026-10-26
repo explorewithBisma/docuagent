@@ -391,7 +391,7 @@ def _add_chart_helper(ws, category_count: int, total_row: int) -> None:
     last = first + count - 1
     other_row = last + 1
     grey = Font(color="9CA3AF", size=8)
-    ws.cell(row=header_row - 1, column=CHART_HELPER_COLUMN, value="Doughnut chart helper (formulas, do not edit)").font = grey
+    ws.cell(row=header_row - 1, column=CHART_HELPER_COLUMN, value="Chart data (calculated, do not edit)").font = grey
     for offset, label in enumerate(("Label", "Spent", "Rank spent")):
         cell = ws.cell(row=header_row, column=CHART_HELPER_COLUMN + offset, value=label)
         cell.font = grey
@@ -408,7 +408,7 @@ def _add_chart_helper(ws, category_count: int, total_row: int) -> None:
         ws.cell(row=row, column=CHART_HELPER_COLUMN + 1, value=f'=IF({name_col}{row}="",0,{spent_col}{row})')
     rest = f"{total}-SUM({value_col}{first}:{value_col}{last})"
     ws.cell(row=other_row, column=CHART_HELPER_COLUMN, value=(
-        f'=IF({total}<=0,"",IF(({rest})/{total}>=chart_min_share,"Other (under "&TEXT(chart_min_share,"0%")&")",""))'))
+        f'=IF({total}<=0,"",IF(({rest})/{total}>=chart_min_share,"Small categories (under "&TEXT(chart_min_share,"0%")&")",""))'))
     ws.cell(row=other_row, column=CHART_HELPER_COLUMN + 1, value=f"=MAX(0,{rest})")
     for row in range(first, other_row + 1):
         for column in range(CHART_HELPER_COLUMN, CHART_HELPER_COLUMN + 3):

@@ -169,13 +169,13 @@ assert got[4][0] in ("", None) and close(got[4][1], 2), got
 assert close(sum(v for _, v in got), 152), "nothing is lost: the slices add up to the total spending"
 print("PASSED")
 
-print("TEST: doughnut helper - several small slices together become a labelled 'Other (under 3%)' slice; ties keep list order")
+print("TEST: doughnut helper - several small slices together become a labelled 'Small categories (under 3%)' slice; ties keep list order")
 config = BudgetConfig(month_start=date(2026, 6, 1), categories={"Food": 0, "A": 0, "B": 0, "C": 0, "D": 0, "E": 0})
 rows = pd.DataFrame([tx(d(2026, 6, 2), "x", "Expense", "Food", 95)] + [tx(d(2026, 6, 3), "y", "Expense", c, 1) for c in "ABCDE"])
 values = recalc(build_workbook(config, KM, rows))
 got = helper(values, 6)
 assert got[0] == ("Food", 95) and all(label in ("", None) and value == 0 for label, value in got[1:6]), got
-assert got[6] == ("Other (under 3%)", 5), got
+assert got[6] == ("Small categories (under 3%)", 5), got
 print("PASSED")
 
 print("TEST: doughnut helper - the threshold is a setting; no spending gives an empty chart table")

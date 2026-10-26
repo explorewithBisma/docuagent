@@ -151,7 +151,8 @@ print("TEST: the chart helper is formulas only, visible (a hidden column is not 
 helper_cells = [c for row in dash["AA17:AC30"] for c in row if c.value is not None]
 assert all(not isinstance(c.value, (int, float)) for c in helper_cells)
 assert dash["AA18"].value.startswith('=IF($C$48<=0,"",IF(AC18/$C$48>=chart_min_share,') and dash["AB18"].value == '=IF(AA18="",0,AC18)'
-assert dash["AA23"].value.startswith('=IF($C$48<=0,"",IF(($C$48-SUM(AB18:AB22))/$C$48>=chart_min_share,"Other (under "') and dash["AB23"].value == "=MAX(0,$C$48-SUM(AB18:AB22))"
+assert dash["AA23"].value.startswith('=IF($C$48<=0,"",IF(($C$48-SUM(AB18:AB22))/$C$48>=chart_min_share,"Small categories (under "') and dash["AB23"].value == "=MAX(0,$C$48-SUM(AB18:AB22))"
+assert dash["AA16"].value == "Chart data (calculated, do not edit)", "a heading sits right above the helper table"
 assert not dash.column_dimensions["AA"].hidden and names["chart_min_share"] == "Settings!$B$7" and wb["Settings"]["B7"].value == 0.03
 print("PASSED")
 
