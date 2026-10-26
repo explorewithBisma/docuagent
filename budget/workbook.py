@@ -43,6 +43,8 @@ FIRST_ROW, LAST_ROW = 2, TRANSACTION_ROWS + 1            # Transactions rows tha
 SETTINGS_FIRST = 3                                         # first row of the lists on Settings
 CATEGORY_ROW_1 = 18                                        # first row of the Dashboard category table
 DAILY_ROW_1 = 12                                           # first row of the Dashboard daily table
+CHART_MIN_SHARE = 0.03                                     # doughnut slices under this share of the spending get no label
+CHART_HELPER_COLUMN = 27                                   # AA: the chart's own small table lives out of the way
 SHEET_NAMES = ("How to use", "Dashboard", "Transactions", "Settings", "Keywords")
 
 # --- look -------------------------------------------------------------------------------
@@ -100,13 +102,15 @@ def _build_settings(wb, config: BudgetConfig) -> None:
     ws["A4"], ws["B4"] = "Month ends", "=EDATE(B3,1)-1"
     ws["A5"], ws["B5"] = "Opening balance", float(config.opening_balance)
     ws["A6"], ws["B6"] = "Currency label", config.currency
+    ws["A7"], ws["B7"] = "Doughnut chart: hide slices under", CHART_MIN_SHARE
+    ws["B7"].number_format = "0%"
     ws["B3"].number_format = ws["B4"].number_format = "dd mmm yyyy"
     ws["B5"].number_format = money_format(config.currency)
-    for address in ("B3", "B5", "B6"):
+    for address in ("B3", "B5", "B6", "B7"):
         ws[address].fill, ws[address].border = INPUT_FILL, BOX
-    ws["A8"] = "The currency symbol in the number formats was set when this file was made;"
-    ws["A9"] = "the label above is for reference only."
-    ws["A8"].font = ws["A9"].font = Font(italic=True, color=MUTED, size=9)
+    ws["A9"] = "The currency symbol in the number formats was set when this file was made;"
+    ws["A10"] = "the label above is for reference only."
+    ws["A9"].font = ws["A10"].font = Font(italic=True, color=MUTED, size=9)
 
     _header(ws, 2, ["Types"], 5)
     ws["E2"].value = "Types"
@@ -136,6 +140,7 @@ def _build_settings(wb, config: BudgetConfig) -> None:
     _name(wb, "month_start", "Settings!$B$3")
     _name(wb, "month_end", "Settings!$B$4")
     _name(wb, "opening", "Settings!$B$5")
+    _name(wb, "chart_min_share", "Settings!$B$7")
     _name(wb, "lst_types", f"Settings!$E${SETTINGS_FIRST}:$E${SETTINGS_FIRST + len(TYPES) - 1}")
     _name(wb, "lst_categories", f"OFFSET(Settings!$G${SETTINGS_FIRST},0,0,MAX(1,COUNTA(Settings!$G${SETTINGS_FIRST}:$G${last})),1)")
     _name(wb, "lst_payment", f"OFFSET(Settings!$J${SETTINGS_FIRST},0,0,"
@@ -372,7 +377,47 @@ def _build_dashboard(wb, config: BudgetConfig) -> None:
             ws.cell(row=row, column=column).border = BOX
     ws.column_dimensions["M"].width = 14
     ws.freeze_panes = "A4"
+    _add_chart_helper(ws, len(config.categories), total_row)
     _add_charts(ws, len(config.categories), last_day_row)
+
+
+def _add_chart_helper(ws, category_count: int, total_row: int) -> None:
+    """The doughnut's own small table (columns AA:AC, formulas only): the categories ranked by spending, with the name left
+    blank - and so no label - for any slice under chart_min_share of the total, plus one 'Other' slice that collects them.
+    Not hidden: Excel does not draw data from hidden columns."""
+    count = max(1, min(category_count, MAX_CATEGORIES))
+    name_col, value_col, spent_col = (get_column_letter(CHART_HELPER_COLUMN + i) for i in range(3))
+    header_row, first = CATEGORY_ROW_1 - 1, CATEGORY_ROW_1
+    last = first + count - 1
+    other_row = last + 1
+    grey = Font(color="9CA3AF", size=8)
+    ws.cell(row=header_row - 1, column=CHART_HELPER_COLUMN, value="Doughnut chart helper (formulas, do not edit)").font = grey
+    for offset, label in enumerate(("Label", "Spent", "Rank spent")):
+        cell = ws.cell(row=header_row, column=CHART_HELPER_COLUMN + offset, value=label)
+        cell.font = grey
+    keys = f"$G${CATEGORY_ROW_1}:$G${CATEGORY_ROW_1 + MAX_CATEGORIES - 1}"
+    names_range = f"$A${CATEGORY_ROW_1}:$A${CATEGORY_ROW_1 + MAX_CATEGORIES - 1}"
+    spent_range = f"$C${CATEGORY_ROW_1}:$C${CATEGORY_ROW_1 + MAX_CATEGORIES - 1}"
+    total = f"$C${total_row}"
+    for row in range(first, last + 1):
+        rank = f"(ROW($H{row})-ROW($H${header_row}))"
+        position = f"MATCH(LARGE({keys},{rank}),{keys},0)"
+        ws.cell(row=row, column=CHART_HELPER_COLUMN + 2, value=f"=IFERROR(INDEX({spent_range},{position}),0)")
+        ws.cell(row=row, column=CHART_HELPER_COLUMN, value=(
+            f'=IF({total}<=0,"",IF({spent_col}{row}/{total}>=chart_min_share,IFERROR(INDEX({names_range},{position}),""),""))'))
+        ws.cell(row=row, column=CHART_HELPER_COLUMN + 1, value=f'=IF({name_col}{row}="",0,{spent_col}{row})')
+    rest = f"{total}-SUM({value_col}{first}:{value_col}{last})"
+    ws.cell(row=other_row, column=CHART_HELPER_COLUMN, value=(
+        f'=IF({total}<=0,"",IF(({rest})/{total}>=chart_min_share,"Other (under "&TEXT(chart_min_share,"0%")&")",""))'))
+    ws.cell(row=other_row, column=CHART_HELPER_COLUMN + 1, value=f"=MAX(0,{rest})")
+    for row in range(first, other_row + 1):
+        for column in range(CHART_HELPER_COLUMN, CHART_HELPER_COLUMN + 3):
+            cell = ws.cell(row=row, column=column)
+            cell.font = grey
+            if column > CHART_HELPER_COLUMN:
+                cell.number_format = "0.00"
+    for offset, width in enumerate((22, 10, 10)):
+        ws.column_dimensions[get_column_letter(CHART_HELPER_COLUMN + offset)].width = width
 
 
 def _add_charts(ws, category_count: int, last_day_row: int) -> None:
@@ -397,11 +442,19 @@ def _add_charts(ws, category_count: int, last_day_row: int) -> None:
     ws.add_chart(daily, "O22")
 
     share = DoughnutChart()
-    share.title, share.height, share.width = "Where the money went", 8.5, 17
-    share.add_data(Reference(ws, min_col=3, min_row=CATEGORY_ROW_1 - 1, max_row=last), titles_from_data=True)
-    share.set_categories(categories)
-    share.dataLabels = DataLabelList()
-    share.dataLabels.showPercent = True
+    share.title, share.height, share.width = "Spending by category", 9.5, 17
+    helper_last = last + 1                                          # one extra row: the 'Other' slice
+    share.add_data(Reference(ws, min_col=CHART_HELPER_COLUMN + 1, min_row=CATEGORY_ROW_1 - 1, max_row=helper_last),
+                   titles_from_data=True)
+    share.set_categories(Reference(ws, min_col=CHART_HELPER_COLUMN, min_row=CATEGORY_ROW_1, max_row=helper_last))
+    share.holeSize = 50
+    labels = DataLabelList()
+    labels.showCatName, labels.showPercent = True, True              # only the name and the percentage ...
+    labels.showVal = labels.showSerName = labels.showLegendKey = False       # (no leader-line element: openpyxl would write it after "separator", the wrong order)
+    labels.separator = "\n"
+    labels.numFmt = '[<0.005]"";0%'                                  # ... and nothing at all for an empty slice
+    share.dataLabels = labels
+    share.legend.position = "r"                                      # the legend sits on the right, off the ring
     ws.add_chart(share, "O40")
 
 

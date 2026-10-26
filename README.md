@@ -482,3 +482,9 @@ the app is - plus a short **Please check** list of only the uncertain things. Cl
   description texts and your category names are sent - never amounts, dates or other columns. AI categories are marked
   "AI suggested" in the review table and in Import Notes. With no API key the step is skipped.
 - A sanity check compares your file's own estimated closing balance with the one calculated here (information only).
+
+**Doughnut chart:** the "Spending by category" chart shows only the category name and its percentage, with the legend
+on the right. Categories are ranked by spending; a slice under 3% of the total gets no label (the share is the
+*Doughnut chart: hide slices under* setting on the Settings sheet) and is added to one "Other (under 3%)" slice. The chart
+reads its own small formula table in columns AA:AC of the Dashboard (not hidden: Excel does not draw data from hidden
+columns).

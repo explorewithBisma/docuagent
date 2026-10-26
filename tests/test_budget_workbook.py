@@ -131,6 +131,30 @@ kinds = sorted(type(chart).__name__ for chart in dash._charts)
 assert kinds == ["BarChart", "BarChart", "DoughnutChart"], kinds
 print("PASSED")
 
+print("TEST: the doughnut shows only name + percentage, hides small and empty slices, has its legend on the right")
+import re
+import zipfile
+doughnut = next(zipfile.ZipFile(io.BytesIO(IMPORTED)).read(n).decode() for n in zipfile.ZipFile(io.BytesIO(IMPORTED)).namelist()
+                if n.startswith("xl/charts/chart") and "doughnutChart" in zipfile.ZipFile(io.BytesIO(IMPORTED)).read(n).decode())
+labels = re.search(r"<dLbls>.*?</dLbls>", doughnut).group(0)
+for element, value in (("showCatName", "1"), ("showPercent", "1"), ("showVal", "0"), ("showSerName", "0"), ("showLegendKey", "0")):
+    assert f'<{element} val="{value}"' in labels, (element, labels)
+assert 'formatCode="[&lt;0.005]&quot;&quot;;0%"' in labels, "an empty slice gets no '0%' label"
+assert labels.index("showPercent") < labels.index("separator") and "showLeaderLines" not in labels, "elements in the order the schema requires"
+assert '<legend><legendPos val="r"' in doughnut
+rows_in_chart = len(CONFIG.categories) + 1                                  # the ranked categories + the 'Other' slice
+assert f"$AA$18:$AA${17 + rows_in_chart}" in doughnut and f"$AB$18:$AB${17 + rows_in_chart}" in doughnut
+assert "$A$18" not in doughnut and "$C$18" not in doughnut, "the doughnut reads its own helper table, not the category table"
+print("PASSED")
+
+print("TEST: the chart helper is formulas only, visible (a hidden column is not drawn), and its threshold is a named setting")
+helper_cells = [c for row in dash["AA17:AC30"] for c in row if c.value is not None]
+assert all(not isinstance(c.value, (int, float)) for c in helper_cells)
+assert dash["AA18"].value.startswith('=IF($C$48<=0,"",IF(AC18/$C$48>=chart_min_share,') and dash["AB18"].value == '=IF(AA18="",0,AC18)'
+assert dash["AA23"].value.startswith('=IF($C$48<=0,"",IF(($C$48-SUM(AB18:AB22))/$C$48>=chart_min_share,"Other (under "') and dash["AB23"].value == "=MAX(0,$C$48-SUM(AB18:AB22))"
+assert not dash.column_dimensions["AA"].hidden and names["chart_min_share"] == "Settings!$B$7" and wb["Settings"]["B7"].value == 0.03
+print("PASSED")
+
 print("TEST: How to use - at most 8 short steps in plain English, covering types, credit cards, colors, next month")
 how = wb["How to use"]
 steps = [(how.cell(row=r, column=1).value, how.cell(row=r, column=2).value) for r in range(3, 20) if how.cell(row=r, column=1).value]

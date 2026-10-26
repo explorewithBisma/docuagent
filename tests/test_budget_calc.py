@@ -149,3 +149,47 @@ for key in ("income", "expenses", "loan_payments", "loans_received", "saved", "n
 assert close(values["Dashboard!B12"], 1234.5) and values["Dashboard!J5"] in ("", None)
 assert values["Dashboard!F5"] == 0 and values["Dashboard!F8"] == 0
 print("PASSED")
+
+
+def helper(values, count):
+    """(label, value) of the doughnut helper table: `count` ranked categories + the 'Other' row."""
+    return [(values.get(f"Dashboard!AA{18 + i}"), values.get(f"Dashboard!AB{18 + i}")) for i in range(count + 1)]
+
+
+print("TEST: doughnut helper - ranked by spending; a slice under the chosen share has no name (so no label) and joins 'Other'")
+config = BudgetConfig(month_start=date(2026, 6, 1), categories={"Food": 0, "Transport": 0, "Pets": 0, "Shopping": 0})
+rows = pd.DataFrame([tx(d(2026, 6, 2), "a", "Expense", "Pets", 2), tx(d(2026, 6, 3), "b", "Expense", "Food", 100),
+                     tx(d(2026, 6, 4), "c", "Expense", "Transport", 50)])
+values = recalc(build_workbook(config, KM, rows))
+got = helper(values, 4)
+# total 152: Food 65.8%, Transport 32.9%, Pets 1.3% (hidden); the hidden 2 would be 'Other' but 1.3% is also under 3%: no name either
+assert got[0] == ("Food", 100) and got[1] == ("Transport", 50), got
+assert got[2][0] in ("", None) and got[2][1] == 0 and got[3][0] in ("", None) and got[3][1] == 0, got
+assert got[4][0] in ("", None) and close(got[4][1], 2), got
+assert close(sum(v for _, v in got), 152), "nothing is lost: the slices add up to the total spending"
+print("PASSED")
+
+print("TEST: doughnut helper - several small slices together become a labelled 'Other (under 3%)' slice; ties keep list order")
+config = BudgetConfig(month_start=date(2026, 6, 1), categories={"Food": 0, "A": 0, "B": 0, "C": 0, "D": 0, "E": 0})
+rows = pd.DataFrame([tx(d(2026, 6, 2), "x", "Expense", "Food", 95)] + [tx(d(2026, 6, 3), "y", "Expense", c, 1) for c in "ABCDE"])
+values = recalc(build_workbook(config, KM, rows))
+got = helper(values, 6)
+assert got[0] == ("Food", 95) and all(label in ("", None) and value == 0 for label, value in got[1:6]), got
+assert got[6] == ("Other (under 3%)", 5), got
+print("PASSED")
+
+print("TEST: doughnut helper - the threshold is a setting; no spending gives an empty chart table")
+import io as _io
+import openpyxl
+book = openpyxl.load_workbook(_io.BytesIO(build_workbook(BudgetConfig(month_start=date(2026, 6, 1), categories={"Food": 0, "Transport": 0}), KM,
+                                                         pd.DataFrame([tx(d(2026, 6, 2), "a", "Expense", "Food", 70),
+                                                                       tx(d(2026, 6, 3), "b", "Expense", "Transport", 30)]))))
+assert book["Settings"]["B7"].value == 0.03 and book["Settings"]["A7"].value == "Doughnut chart: hide slices under"
+book["Settings"]["B7"] = 0.5
+buffer = _io.BytesIO()
+book.save(buffer)
+got = helper(recalc(buffer.getvalue()), 2)
+assert got[0] == ("Food", 70) and got[1][0] in ("", None) and got[1][1] == 0 and got[2][0] in ("", None) and close(got[2][1], 30), got
+empty = helper(recalc(build_workbook(BudgetConfig(month_start=date(2026, 9, 1), categories={"Food": 0, "Transport": 0}), KM)), 2)
+assert all(label in ("", None) and value == 0 for label, value in empty), empty
+print("PASSED")
