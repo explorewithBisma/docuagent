@@ -488,3 +488,36 @@ on the right. Categories are ranked by spending; a slice under 3% of the total g
 *Doughnut chart: hide slices under* setting on the Settings sheet) and is added to one "Small categories (under 3%)" slice. The chart
 reads its own small formula table in columns AA:AC of the Dashboard (not hidden: Excel does not draw data from hidden
 columns).
+
+
+---
+
+## The start screen and "Check my file"
+
+`streamlit run main.py` opens a start screen with five tasks: **Clean my file**, **Check my file**, **Match two files**,
+**Build my budget** and **Check every month**. The last two of those that are not built yet (*Match two files*, *Check every
+month*) are greyed out with "Coming soon"; set `SHOW_UNFINISHED_FEATURES = False` in `config.py` to hide them (for example before
+sharing the public link).
+
+**Check my file** (Excel Doctor) reads a workbook and reports, in plain language:
+- what each sheet seems to do (with the evidence and how sure it is);
+- **error values and broken references** (`#REF!`, `#DIV/0!` ..., sheets that no longer exist, links to other files);
+- **typed totals** that are not formulas, and numbers typed over a column of formulas;
+- **ranges that stop short** of the data (with the money left out), siblings that do something different, subtotals counted twice;
+- **SUMIF / COUNTIF criteria that match nothing**, with the closest value that does exist (for example `🍔 Food` vs `Food/Grocery`);
+- **figures that disagree**: a typed "total expenses" vs what the transaction list adds up to, a summary total that is lower than its
+  rows, the same label with different numbers on two sheets, budgets that differ between two tables;
+- small things: numbers or dates stored as text, hidden data, results that were not recalculated.
+
+The report is ordered by importance. You also get a **highlighted copy** of the workbook: problem cells coloured (red / yellow / blue),
+a note on each with the reason, and a "Doctor report" sheet at the end with links to the cells. Your numbers are never changed: the copy
+is made by patching the .xlsx package directly, so charts, images and everything else stay byte-identical, and the result is checked
+(every value and formula equal, every other part identical) before it is offered. If the check fails you get the report only, plus the
+text download.
+
+Only SUM, SUMIF, SUMIFS, COUNTIF and COUNTIFS are recalculated (by a small built-in evaluator); other formulas are still checked for
+errors, references and typed-over cells and are listed as "not recalculated". The Doctor does not support old `.xls` files or
+password-protected workbooks.
+
+Code: `toolkit/` (shared report shapes, ranking, workbook reader, highlighter, screen parts) and `doctor/` (formula reader, evaluator,
+checks, report); the page is `doctor_app.py`.

@@ -3,37 +3,57 @@ main.py
 --------
 The app's entry point: `streamlit run main.py`.
 
-A start screen lets the user choose between the two modes:
-  A. Clean my Excel/CSV   - the existing cleaner (app.py, unchanged)
-  B. Build my budget sheet - the budget workbook builder (budget_app.py)
-Nothing is stored on the server in either mode: a file goes in, a better file comes out.
+The start screen offers five simple tasks. Each one is a file in, a better file (or a report) out; nothing is stored on the server.
+
+  Clean my file        - the cleaner (app.py)
+  Check my file        - Excel Doctor (doctor_app.py)
+  Match two files      - coming soon
+  Build my budget      - the budget builder (budget_app.py)
+  Check every month    - coming soon
+
+Tools that are not built yet are shown greyed out with "Coming soon". To hide them (for example before sharing the public link) set
+SHOW_UNFINISHED_FEATURES = False in config.py.
 """
 
 import streamlit as st
 
+import config
+
 st.set_page_config(page_title="Spreadsheet Helper", page_icon="📊", layout="wide")
+
+# key, icon, title, one-line description, page (None = not built yet)
+TOOLS = [
+    ("cleaner", "🧹", "Clean my file", "Remove duplicates, empty rows and stray spaces, fix placeholders, and standardize values."),
+    ("check", "🩺", "Check my file", "Find typed-in totals, broken formulas and numbers that disagree between sheets."),
+    ("match", "🔗", "Match two files", "Compare a bank statement with your records, or stock with sales."),
+    ("budget", "💰", "Build my budget", "Turn a messy budget or a bank statement into a clean budget workbook."),
+    ("monthly", "✅", "Check every month", "Set simple rules once, then get a pass/fail report on every month's file."),
+]
+KEYS = {"cleaner": "start_cleaner", "check": "start_check", "match": "start_match", "budget": "start_budget", "monthly": "start_monthly"}
 
 
 def start_screen():
     st.title("📊 Spreadsheet Helper")
     st.write("What would you like to do?")
-    left, right = st.columns(2)
-    with left, st.container(border=True):
-        st.subheader("🧹 Clean my Excel/CSV")
-        st.write("Upload a messy file: remove duplicates and empty rows, trim spaces, fix placeholders, "
-                 "standardize values (with optional AI-suggested rules), and download the clean file.")
-        if st.button("Clean my Excel/CSV", key="start_cleaner", type="primary"):
-            st.switch_page(cleaner_page)
-    with right, st.container(border=True):
-        st.subheader("💰 Build my budget sheet")
-        st.write("Turn a messy personal budget (or a blank start) into a tidy Excel workbook with dropdowns, "
-                 "a formula-driven dashboard and charts.")
-        if st.button("Build my budget sheet", key="start_budget", type="primary"):
-            st.switch_page(budget_page)
+    visible = [t for t in TOOLS if PAGES.get(t[0]) is not None or config.SHOW_UNFINISHED_FEATURES]
+    for start in range(0, len(visible), 3):
+        row = visible[start:start + 3]
+        for column, (key, icon, title, text) in zip(st.columns(3), row):
+            with column, st.container(border=True):
+                st.subheader(f"{icon} {title}")
+                st.write(text)
+                page = PAGES.get(key)
+                if page is not None:
+                    if st.button(title, key=KEYS[key], type="primary"):
+                        st.switch_page(page)
+                else:
+                    st.button("Coming soon", key=KEYS[key], disabled=True)
 
 
 start_page = st.Page(start_screen, title="Start", icon="🏠", default=True, url_path="start")
-cleaner_page = st.Page("app.py", title="Clean my Excel/CSV", icon="🧹", url_path="cleaner")
-budget_page = st.Page("budget_app.py", title="Build my budget sheet", icon="💰", url_path="budget")
+cleaner_page = st.Page("app.py", title="Clean my file", icon="🧹", url_path="cleaner")
+check_page = st.Page("doctor_app.py", title="Check my file", icon="🩺", url_path="check")
+budget_page = st.Page("budget_app.py", title="Build my budget", icon="💰", url_path="budget")
+PAGES = {"cleaner": cleaner_page, "check": check_page, "match": None, "budget": budget_page, "monthly": None}
 
-st.navigation([start_page, cleaner_page, budget_page], position="hidden").run()
+st.navigation([start_page, cleaner_page, check_page, budget_page], position="hidden").run()

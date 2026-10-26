@@ -16,6 +16,9 @@ from toolkit.report import Fact, Report
 from toolkit.sheets import read_workbook
 
 
+MAX_CELLS = 300_000
+
+
 def describe_sheet(ctx, sheet, table):
     """(purpose sentence, evidence, confidence) for one sheet."""
     formulas = sheet.formula_cells()
@@ -49,6 +52,10 @@ def describe_sheet(ctx, sheet, table):
 def analyze(file_bytes: bytes, options: Options = None):
     """-> (Report, Context). Raises ValueError (readable) for a file that cannot be read."""
     workbook = read_workbook(file_bytes)
+    cells = sum(len(sheet.cells) for sheet in workbook.sheets.values())
+    if cells > MAX_CELLS:
+        raise ValueError(f"This workbook is very large ({cells:,} filled cells). The limit for this check is {MAX_CELLS:,}; "
+                         "try it with fewer sheets or rows.")
     ctx = Context(workbook, options)
     ctx.tx_tables = find_tx_tables(ctx)
 

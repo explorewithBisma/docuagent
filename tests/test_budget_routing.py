@@ -1,39 +1,72 @@
 from pathlib import Path as _Path
 ROOT = _Path(__file__).resolve().parents[1]
-"""main.py: the start screen offers both modes and leads to each; app.py (the cleaner) is untouched."""
+"""main.py: the start screen offers the five tasks (unfinished ones greyed out, or hidden by config) and leads to each finished
+one; app.py (the cleaner) is untouched."""
 import subprocess
 import sys
+from unittest import mock
+
+sys.path.insert(0, str(ROOT))
 
 from streamlit.testing.v1 import AppTest
 
-print("TEST: start screen shows both modes")
-at = AppTest.from_file(str(ROOT / "main.py"), default_timeout=120)
-at.run()
-assert not at.exception, [e.value for e in at.exception]
-assert [b.label for b in at.button] == ["Clean my Excel/CSV", "Build my budget sheet"]
+import config
+
+
+def start():
+    at = AppTest.from_file(str(ROOT / "main.py"), default_timeout=120)
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    return at
+
+
+print("TEST: the start screen shows all five tasks with their one-line descriptions; unfinished ones are disabled 'Coming soon'")
+at = start()
+assert [s.value for s in at.subheader] == ["🧹 Clean my file", "🩺 Check my file", "🔗 Match two files", "💰 Build my budget", "✅ Check every month"]
+buttons = {b.key: b for b in at.button}
+assert buttons["start_cleaner"].label == "Clean my file" and buttons["start_check"].label == "Check my file"
+assert buttons["start_budget"].label == "Build my budget"
+for key in ("start_match", "start_monthly"):
+    assert buttons[key].label == "Coming soon" and buttons[key].proto.disabled is True
+for key in ("start_cleaner", "start_check", "start_budget"):
+    assert buttons[key].proto.disabled is False
+text = " ".join(m.value for m in at.markdown)
+assert "Compare a bank statement with your records" in text and "Find typed-in totals, broken formulas" in text
 print("PASSED")
 
-print("TEST: mode A opens the unchanged cleaner")
+print("TEST: SHOW_UNFINISHED_FEATURES = False hides the cards that are not built yet")
+with mock.patch.object(config, "SHOW_UNFINISHED_FEATURES", False):
+    at = start()
+assert [s.value for s in at.subheader] == ["🧹 Clean my file", "🩺 Check my file", "💰 Build my budget"]
+assert {b.key for b in at.button} == {"start_cleaner", "start_check", "start_budget"}
+print("PASSED")
+
+print("TEST: 'Clean my file' opens the unchanged cleaner")
+next(b for b in start().button if b.key == "start_cleaner").click()
+at = start()
 next(b for b in at.button if b.key == "start_cleaner").click()
 at.run()
 assert not at.exception, [e.value for e in at.exception]
 assert [t.value for t in at.title] == ["🧹 Excel & CSV Cleaner"]
 print("PASSED")
 
-print("TEST: mode B opens the budget builder, which links back to the start screen")
-at = AppTest.from_file(str(ROOT / "main.py"), default_timeout=120)
+print("TEST: 'Check my file' opens Excel Doctor, which links back to the start screen")
+at = start()
+next(b for b in at.button if b.key == "start_check").click()
 at.run()
+assert not at.exception, [e.value for e in at.exception]
+assert any("Check my file" in t.value for t in at.title) and any(b.key == "back_to_start" for b in at.button)
+print("PASSED")
+
+print("TEST: 'Build my budget' opens the budget builder, which links back to the start screen")
+at = start()
 next(b for b in at.button if b.key == "start_budget").click()
 at.run()
 assert not at.exception, [e.value for e in at.exception]
-assert any("budget" in t.value.lower() for t in at.title)
-assert any(b.key == "back_to_start" for b in at.button)
+assert any("budget" in t.value.lower() for t in at.title) and any(b.key == "back_to_start" for b in at.button)
 print("PASSED")
 
-print("TEST: app.py is not modified by the budget work (the cleaner and its tests are untouched)")
-diff = subprocess.run(["git", "diff", "--stat", "9be2f8f", "--", "app.py"], cwd=ROOT, capture_output=True, text=True).stdout
-# app.py was last changed by the loaded-rule check commit; nothing after it may touch it
-last = subprocess.run(["git", "log", "-1", "--format=%h", "65a059f", "--", "app.py"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+print("TEST: app.py is not modified by the budget or Doctor work (the cleaner and its tests are untouched)")
 changes = subprocess.run(["git", "diff", "--stat", "65a059f", "--", "app.py"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
 assert changes == "", changes
 print("PASSED")
