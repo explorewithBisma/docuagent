@@ -17,7 +17,6 @@ Nothing here changes the user's data: the functions only read the raw sheets and
 
 import re
 from collections import Counter
-from dataclasses import dataclass, field
 from datetime import date, datetime
 
 import pandas as pd
@@ -26,6 +25,7 @@ from budget import categorize, names
 from budget.model import INCOME, LOAN_PAYMENT, LOAN_RECEIVED, TX_COLUMNS
 from locales import LOCALES
 from quality import is_blank
+from toolkit.report import Finding          # shared with the other tools; re-exported here
 
 CURRENCY_CODES = ("AED", "USD", "EUR", "GBP", "PKR", "INR", "SAR", "QAR", "KWD", "BHD", "OMR", "CAD", "AUD")
 CURRENCY_SYMBOLS = ("$", "€", "£", "₹")
@@ -34,14 +34,6 @@ _CODE = re.compile(r"(?<![A-Za-z])(" + "|".join(CURRENCY_CODES) + r")(?![A-Za-z]
 _SYMBOL = re.compile("[" + re.escape("".join(CURRENCY_SYMBOLS)) + "]")
 MONTH_NAMES = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november",
                "december"]
-
-
-@dataclass
-class Finding:
-    value: object
-    confidence: str                     # "high" | "medium" | "low"
-    source: str                         # a plain sentence: where it came from
-    alternatives: list = field(default_factory=list)      # [(value, source)] other candidates
 
 
 def _is_number(value) -> bool:
