@@ -397,8 +397,8 @@ def filter_valid_rules(raw_rules: list, available_columns: list, inconsistent_ca
 # provider-specific errors become AISuggestionError with a clear message.)
 # ---------------------------------------------------------------------------
 
-def _call_anthropic(prompt: str) -> str:
-    """Ask Claude, constrained to RESPONSE_SCHEMA via structured outputs."""
+def _call_anthropic(prompt: str, schema: dict = None) -> str:
+    """Ask Claude, constrained to RESPONSE_SCHEMA (or another JSON schema) via structured outputs."""
     client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from the environment
     model = model_for("anthropic")
 
@@ -406,7 +406,7 @@ def _call_anthropic(prompt: str) -> str:
         response = client.messages.create(
             model=model,
             max_tokens=4096,
-            output_config={"format": {"type": "json_schema", "schema": RESPONSE_SCHEMA}},
+            output_config={"format": {"type": "json_schema", "schema": schema or RESPONSE_SCHEMA}},
             messages=[{"role": "user", "content": prompt}],
         )
     except anthropic.AuthenticationError:
