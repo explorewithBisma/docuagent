@@ -43,3 +43,71 @@ def messy_budget_bytes() -> bytes:
     buffer = io.BytesIO()
     wb.save(buffer)
     return buffer.getvalue()
+
+
+def personal_style_bytes() -> bytes:
+    """A workbook shaped like a template budget tracker (synthetic numbers): a long-header daily log, an income list,
+    a loan payment log, balances with several candidate labels, and two budget tables that disagree."""
+    wb = Workbook()
+    dash = wb.active
+    dash.title = "📊 Dashboard"
+    dash.append(["📊 PERSONAL BUDGET DASHBOARD"])
+    dash.append([])
+    dash.append(["Category", "Spent (AED)", "Budget (AED)", "Left / Over", "Status"])
+    for row in (["🏠 Housing", 2000, 2000], ["🍔 Food", 0, 1000], ["🚗 Transport", 40, 500], ["💊 Health", 0, 500]):
+        dash.append(row)
+    dash.append(["🏁 GRAND TOTAL", 2040, 3500])                      # 4000 of budgets, but the total says 3500: inconsistent
+
+    balance = wb.create_sheet("🏦 Account Balance")
+    balance.append(["🏦 ACCOUNT BALANCE TRACKER — June 2026"])
+    for label, value in (("May 2026 Closing Balance (AED)", 11236), ("Any Pending Transactions (AED)", 0),
+                         ("Adjusted Opening Balance (AED)", 11236), ("Opening Balance (from May closing)", 11236),
+                         ("(+) Total Income This Month", 7225), ("(=) Estimated Closing Balance", 1463.29),
+                         ("🏁 TOTAL BALANCE (All Accounts)", 0)):
+        balance.append([label, value])
+
+    loan = wb.create_sheet("💳 Credit Card Loan")
+    loan.append(["💳 CREDIT CARD LOAN TRACKER — June 2026"])
+    loan.append(["Total Loan Amount (AED)", 5000])
+    loan.append([])
+    loan.append(["🗓️ MONTHLY PAYMENT LOG"])
+    loan.append(["Payment Date", "Loan / Card", "Amount Paid (AED)", "Payment Method"])
+    loan.append([datetime(2026, 6, 15), "ENBD", 500, "Debit card"])
+    loan.append([datetime(2026, 6, 17), None, 500.5, None])
+    loan.append([None, None, 0, None])
+    loan.append(["✅ TOTAL PAYMENTS THIS MONTH", None, 1000.5])
+
+    log = wb.create_sheet("📝 Daily Log")
+    log.append(["📝 DAILY EXPENSE LOG — June 2026"])
+    log.append(["Fill in the BLUE cells"])
+    log.append(["#", "Date", "Description / What did you spend on?", "Category", "Amount (AED)", "Payment Method", "Notes"])
+    entries = [
+        (1, datetime(2026, 6, 1), "Resturant", "Food/Grocery", 5), (None, None, "Grocery", "Food/Grocery", 6),
+        (2, datetime(2026, 6, 2), "malabar", None, 23.5), (None, None, "Taxi", None, 15),
+        (3, datetime(2026, 6, 3), "Aster", None, 40),
+        (4, datetime(2026, 6, 4), "Resturant", None, 12), (None, None, "Metro", None, 4),
+        (5, datetime(2026, 6, 5), "Room rent", None, 2000),
+    ]
+    for number, when, description, category, amount in entries:
+        log.append([number, when, description, category, amount, "Debit Card", None])
+    log.append([None, None, None, None, None, "Debit Card", None])           # an empty template row
+    log.append([None, None, "TOTAL", None, 2105.5, None, None])
+
+    income = wb.create_sheet("💵 Income")
+    income.append(["💵 INCOME — June 2026"])
+    income.append([])
+    income.append(["Income Source", "Amount (AED)", "Date Received", "Notes"])
+    for row in (["Primary Salary", 7225, None, None], ["Freelance / Side Work", 0, None, None], ["Credit Card Loan", None, None, None]):
+        income.append(row)
+    income.append(["✅ TOTAL INCOME", 7225])
+
+    summary = wb.create_sheet("📅 Monthly Summary")
+    summary.append(["📅 MONTHLY SUMMARY — June 2026"])
+    summary.append([])
+    summary.append(["Category", "Total Spent (AED)", "Budget (AED)", "Difference", "Status"])
+    for row in (["🏠 Housing", 2000, 2000], ["🍔 Food", 0, 1000], ["🚗 Transport", 40, 0], ["💊 Health", 0, 500]):
+        summary.append(row)
+    summary.append(["🏁 GRAND TOTAL", 2040, 3500])
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
