@@ -39,7 +39,7 @@ class TxTable:
 
 
 TOTAL_LABEL = importer.TOTAL_WORDS
-TOTAL_TOKENS = {"total", "totals", "sum", "subtotal", "grand"}
+TOTAL_TOKENS = {"total", "totals", "sum", "subtotal"}       # ("grand" alone is not one: "Grand barsha" is a shop)
 
 
 def label_tokens(text) -> set:
@@ -68,7 +68,8 @@ class Context:
 
     def number(self, sheet, row, col):
         value = self.val(sheet, row, col)
-        return float(value) if is_number(value) and not isinstance(value, ExcelError) else None
+        # a date is a number to Excel, but a "figure" on a sheet is never a date (a "Loan Start Date" is not an amount)
+        return float(value) if isinstance(value, (int, float)) and not isinstance(value, (bool, ExcelError)) else None
 
     def tree(self, cell):
         """The parsed formula of a cell, or None when it cannot be read (counted)."""
@@ -105,8 +106,8 @@ def money(value) -> str:
 def is_total_label(text) -> bool:
     """'TOTAL', '🏁 GRAND TOTAL', '✅ TOTAL INCOME', '(-) Total Expenses This Month', 'Subtotal': a label that starts with total / sum.
     Emojis and symbols in front are ignored."""
-    canon = names.canonical(text)
-    return canon.split()[:1] in (["total"], ["totals"], ["subtotal"], ["sum"], ["grand"]) if canon else False
+    words = names.canonical(text).split()
+    return bool(words) and (words[0] in ("total", "totals", "subtotal", "sum") or words[:2] == ["grand", "total"])
 
 
 def row_has_total_label(sheet, row) -> bool:
@@ -131,6 +132,30 @@ def labelled_figures(ctx, sheet):
     return found
 
 
+def _is_sum_of_rows_above(ctx, sheet, row, col, first_row) -> bool:
+    """True when the amount in this row is a total of the rows above it even though the row has no 'Total' label: a SUM formula over
+    them, or (for a typed total) an amount, with no description, that equals the sum of the numbers above."""
+    cell = sheet.get(row, col)
+    if cell is None:
+        return False
+    if cell.is_formula:
+        tree = ctx.tree(cell)
+        return tree is not None and any(
+            isinstance(arg, fm.Ref) and arg.kind in ("range", "col") and (arg.sheet in (None, sheet.name)) and arg.c1 <= col <= arg.c2
+            and arg.r1 <= first_row + 1 and (arg.r2 is None or arg.r2 >= row - 1)
+            for call in fm.calls(tree) if call.name in ("SUM", "SUBTOTAL") for arg in call.args)
+    amount = ctx.number(sheet.name, row, col)
+    if amount is None or amount <= 0:
+        return False
+    described = any(sheet.get(row, c) is not None and isinstance(sheet.get(row, c).value, str) and sheet.get(row, c).value.strip()
+                    for c in range(1, sheet.max_col + 1))
+    if described:
+        return False
+    above = [ctx.number(sheet.name, r, col) for r in range(first_row, row)]
+    above = [a for a in above if a is not None]
+    return len(above) >= 3 and abs(sum(above) - amount) <= max(0.005, 1e-6 * amount)
+
+
 def find_tx_tables(ctx) -> list:
     """Transaction lists: a header row with date/description and amount columns, and at least 5 numeric amounts below it."""
     tables = []
@@ -143,8 +168,9 @@ def find_tx_tables(ctx) -> list:
         columns = {role: index + 1 for role, index in layout["columns"].items()}
         header_row = layout["header_row"] + 1
         rows = []
+        amount_col = columns["amount"]
         for row in range(header_row + 1, sheet.max_row + 1):
-            if row_has_total_label(sheet, row):
+            if row_has_total_label(sheet, row) or _is_sum_of_rows_above(ctx, sheet, row, amount_col, header_row + 1):
                 break
             description = sheet.get(row, columns["description"]) if "description" in columns else None
             if ctx.number(sheet.name, row, columns["amount"]) is not None or (description is not None and description.value not in (None, "")) \

@@ -225,3 +225,74 @@ for bad in (b"hello", b"\xd0\xcf\x11\xe0 old"):
     except ValueError as error:
         assert str(error)
 print("PASSED")
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Regressions found by running the Doctor on a real budget file (the structure is reproduced here with invented data)
+# ---------------------------------------------------------------------------------------------------------------------
+def tracker(rows=12, shop="Grand barsha"):
+    """A daily log (header row 3, rows 4..) whose last data row is followed by an UNLABELLED =SUM total, plus a summary sheet
+    that reads the log with SUMIFs and a date label next to a number."""
+    log = {"A3": "Date", "B3": "Description", "C3": "Category", "D3": "Amount (AED)"}
+    total = 0
+    for i in range(rows):
+        row = 4 + i
+        log[f"A{row}"] = datetime(2026, 6, 1 + i // 3)
+        log[f"B{row}"] = shop if i % 4 == 0 else f"item {i}"
+        log[f"C{row}"] = "Food" if i % 2 else "Transport"
+        log[f"D{row}"] = 10 + i
+        total += 10 + i
+    last = 3 + rows
+    log[f"D{last + 1}"] = f"=SUM(D4:D{last})"                    # the total row has no label at all
+    cached = {("Log", f"D{last + 1}"): total}
+    summary = {"A1": "Loan Start Date", "B1": datetime(2026, 6, 19), "A2": "Category", "B2": "Spent (AED)"}
+    for n, category in enumerate(["Food", "Transport"]):
+        summary[f"A{3 + n}"] = category
+        summary[f"B{3 + n}"] = f"=SUMIF(Log!C4:C{last},A{3 + n},Log!D4:D{last})"
+        stored = sum(10 + i for i in range(rows) if (i % 2 == 1) == (category == "Food"))
+        cached[("Summary", f"B{3 + n}")] = stored
+    return {"Log": log, "Summary": summary}, cached, total, last
+
+
+print("TEST: a shop called 'Grand barsha' is not a total (only 'total', 'subtotal', 'sum' and 'grand total' are), a date next to a label is not a figure")
+sheets, cached, total, last = tracker()
+report, ctx = analyze(make(sheets, cached))
+assert report.issues == [], [(i.kind, i.title) for i in report.issues]
+assert ctx.tx_tables[0].amount_total == total and len(ctx.tx_tables[0].rows) == 12, "all 12 rows are in the list - the shop did not end it"
+print("PASSED")
+
+print("TEST: an UNLABELLED total row (=SUM of the rows above, or a typed amount that equals them) ends the list; it is not more data")
+assert ctx.tx_tables[0].last_row == last
+sheets["Log"][f"D{last + 1}"] = total                            # typed instead of a formula, still no label
+report, ctx = analyze(make(sheets))
+assert ctx.tx_tables[0].amount_total == total and ctx.tx_tables[0].last_row == last
+print("PASSED")
+
+print("TEST: 10 formulas that read a range whose total sits directly below it are NOT 'ranges that stop short'")
+sheets, cached, total, last = tracker()
+for n in range(10):
+    sheets["Summary"][f"B{10 + n}"] = f"=SUMIF(Log!C4:C{last},A{3},Log!D4:D{last})"
+    cached[("Summary", f"B{10 + n}")] = 0
+assert issues_of(make(sheets, cached), "range_short") == []
+print("PASSED")
+
+print("TEST: a range that really stops short is ONE finding, however many formulas use it")
+many = {"A1": "Item", "B1": "Amount"}
+many.update({f"B{r}": r for r in range(2, 12)})                  # data in B2:B11
+for n in range(8):
+    many[f"D{2 + n}"] = "=SUM(B2:B9)"                              # eight formulas that all stop at row 9
+(grouped,) = issues_of(make({"S": many}, cached={("S", f"D{2 + n}"): 44 for n in range(8)}), "range_short")
+assert len(grouped.locations) == 8 and grouped.title.startswith("8 formulas:") and "2 more row(s)" in grouped.detail and grouped.impact == 21
+print("PASSED")
+
+print("TEST: typed numbers among formulas are one finding per column; a total row at the end of a formula column is not 'different'")
+rows = {f"A{r}": r for r in range(1, 9)}
+rows.update({f"B{r}": f"=A{r}*2" for r in range(1, 8)})
+rows["B3"], rows["B5"] = 99, 77                                   # two numbers typed over formulas
+rows["B8"] = "=SUM(B1:B7)"                                        # the total row: a different formula by design
+rows["A8"] = "Total"
+data = make({"S": rows}, cached={**{("S", f"B{r}"): r * 2 for r in range(1, 8) if r not in (3, 5)}, ("S", "B8"): 0})
+typed = issues_of(data, "typed_among_formulas")
+assert len(typed) == 1 and typed[0].locations == [("S", "B3"), ("S", "B5")] and "2 typed numbers between formulas in column B" in typed[0].title
+assert issues_of(data, "inconsistent_formula") == []
+print("PASSED")

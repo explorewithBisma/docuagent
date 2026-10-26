@@ -177,8 +177,21 @@ def check_criteria(ctx):
 # ---------------------------------------------------------------------------------------------------------------
 # 3. RANGES
 # ---------------------------------------------------------------------------------------------------------------
-def _continuation(ctx, sheet_name, row_after, col, own_cell):
-    """Rows directly below a range that still hold numbers: [(row, value)]."""
+def _covers_range(ctx, cell, col, r1, r2) -> bool:
+    """True when `cell` is a formula that adds up (at least) the rows r1..r2 of column `col`: a total, not more data."""
+    if not cell.is_formula:
+        return False
+    tree = ctx.tree(cell)
+    if tree is None:
+        return False
+    return any(isinstance(arg, fm.Ref) and arg.kind in ("range", "col") and (arg.sheet or cell.sheet) == cell.sheet
+               and arg.c1 <= col <= arg.c2 and arg.r1 <= r1 and (arg.r2 is None or arg.r2 >= r2)
+               for call in fm.calls(tree) if call.name in ("SUM", "SUBTOTAL") for arg in call.args)
+
+
+def _continuation(ctx, sheet_name, row_after, col, own_cell, r1, r2):
+    """Rows directly below a range that still hold numbers: [(row, value)]. A total of that very range, a total row and
+    the formula's own cell end the data."""
     sheet = ctx.wb.sheets[sheet_name]
     found = []
     row = row_after
@@ -187,7 +200,7 @@ def _continuation(ctx, sheet_name, row_after, col, own_cell):
         if cell is None or (own_cell is not None and cell.sheet == own_cell.sheet and (cell.row, cell.col) == (own_cell.row, own_cell.col)):
             break
         number = ctx.number(sheet_name, row, col)
-        if number is None or row_has_total_label(sheet, row):
+        if number is None or row_has_total_label(sheet, row) or _covers_range(ctx, cell, col, r1, r2):
             break
         found.append((row, number))
         row += 1
@@ -195,9 +208,9 @@ def _continuation(ctx, sheet_name, row_after, col, own_cell):
 
 
 def check_ranges(ctx):
+    groups = {}                  # one finding per range, however many formulas use it
     for sheet in ctx.wb.sheets.values():
-        formula_cells = sheet.formula_cells()
-        for cell in formula_cells:
+        for cell in sheet.formula_cells():
             tree = ctx.tree(cell)
             if tree is None:
                 continue
@@ -211,28 +224,42 @@ def check_ranges(ctx):
                     target = arg.sheet or sheet.name
                     if target not in ctx.wb.sheets:
                         continue
-                    after = _continuation(ctx, target, arg.r2 + 1, arg.c1, cell)
+                    after = _continuation(ctx, target, arg.r2 + 1, arg.c1, cell, arg.r1, arg.r2)
                     if after:
-                        first, last, hidden = after[0][0], after[-1][0], sum(v for _, v in after)
-                        where = f"{target}!{a1(first, arg.c1)}" + (f":{a1(last, arg.c1)}" if last != first else "")
-                        ctx.add(Issue(
-                            "range_short", "medium", f"{cell.sheet}!{cell.coord}: the range stops before the data does",
-                            f"The {call.name} range {arg.text.split(chr(33))[-1]} ends at row {arg.r2}, but {len(after)} more row(s) of numbers follow "
-                            f"directly below ({where}), worth {money(hidden)}. They are not included.",
-                            evidence=f"{cell.coord}: ={cell.formula}", locations=[(cell.sheet, cell.coord)], impact=abs(hidden),
-                            fix=f"Extend the range to row {last}."))
+                        key = ("below", target, arg.c1, arg.r1, arg.r2, after[-1][0])
+                        group = groups.setdefault(key, {"cells": [], "call": call.name, "arg": arg, "after": after, "target": target})
+                        group["cells"].append(cell)
                         break
                     if arg.r1 > 1:
                         above = ctx.number(target, arg.r1 - 1, arg.c1)
                         above_cell = ctx.wb.sheets[target].get(arg.r1 - 1, arg.c1)
                         if above is not None and above_cell is not None and not above_cell.is_formula and \
                                 not row_has_total_label(ctx.wb.sheets[target], arg.r1 - 1):
-                            ctx.add(Issue(
-                                "range_short", "medium", f"{cell.sheet}!{cell.coord}: the range starts below the first number",
-                                f"The range starts at row {arg.r1}, but the number directly above it ({target}!{a1(arg.r1 - 1, arg.c1)} = "
-                                f"{money(above)}) is left out.", evidence=f"{cell.coord}: ={cell.formula}",
-                                locations=[(cell.sheet, cell.coord)], impact=abs(above), fix="Start the range one row higher."))
+                            key = ("above", target, arg.c1, arg.r1, arg.r2, above)
+                            group = groups.setdefault(key, {"cells": [], "call": call.name, "arg": arg, "above": above, "target": target})
+                            group["cells"].append(cell)
                             break
+    for key, group in groups.items():
+        cells, arg, target = group["cells"], group["arg"], group["target"]
+        many = f"{len(cells)} formulas" if len(cells) > 1 else f"{cells[0].sheet}!{cells[0].coord}"
+        evidence = f"{cells[0].coord}: ={cells[0].formula}"
+        locations = [(c.sheet, c.coord) for c in cells]
+        if key[0] == "below":
+            after = group["after"]
+            first, last, hidden = after[0][0], after[-1][0], sum(v for _, v in after)
+            where = f"{target}!{a1(first, arg.c1)}" + (f":{a1(last, arg.c1)}" if last != first else "")
+            ctx.add(Issue(
+                "range_short", "medium", f"{many}: the range stops before the data does",
+                f"The {group['call']} range {arg.text.split(chr(33))[-1]} ends at row {arg.r2}, but {len(after)} more row(s) of numbers follow "
+                f"directly below ({where}), worth {money(hidden)}. They are not included.",
+                evidence=evidence, locations=locations, impact=abs(hidden), fix=f"Extend the range to row {last}."))
+        else:
+            ctx.add(Issue(
+                "range_short", "medium", f"{many}: the range starts below the first number",
+                f"The range starts at row {arg.r1}, but the number directly above it ({target}!{a1(arg.r1 - 1, arg.c1)} = "
+                f"{money(group['above'])}) is left out.", evidence=evidence, locations=locations, impact=abs(group["above"]),
+                fix="Start the range one row higher."))
+    for sheet in ctx.wb.sheets.values():
         _check_siblings(ctx, sheet)
         _check_double_count(ctx, sheet)
 
@@ -253,7 +280,8 @@ def _check_siblings(ctx, sheet):
                 patterns = [fm.to_relative(c.formula, c.row, c.col) for c in run]
                 common, count = Counter(patterns).most_common(1)[0]
                 if count / len(run) >= 0.7 and count < len(run):
-                    odd = [c for c, p in zip(run, patterns) if p != common and not ctx.is_reported(c)]
+                    odd = [c for c, p in zip(run, patterns) if p != common and not ctx.is_reported(c)
+                           and not row_has_total_label(sheet, c.row) and not c.formula.upper().startswith(tuple(f + "(" for f in SUMMING))]
                     if 0 < len(odd) <= 2:
                         ctx.add(Issue(
                             "inconsistent_formula", "medium", f"{sheet.name}!{odd[0].coord} does something different from the formulas around it",
@@ -301,12 +329,19 @@ def check_typed(ctx):
             if above is not None and below is not None and above.is_formula and below.is_formula \
                     and ctx.number(sheet.name, row - 1, col) is not None and ctx.number(sheet.name, row + 1, col) is not None:
                 found.append(cell)
+        by_column = defaultdict(list)
         for cell in sorted(found, key=lambda c: (c.col, c.row)):
-            ctx.add(Issue("typed_among_formulas", "medium", f"{sheet.name}!{cell.coord} is a typed number between formulas",
-                          f"The cells directly above and below are formulas, but this one is a number someone typed ({money(as_number(cell.value))}). "
-                          "It will not change when the data changes.", evidence=f"{cell.coord}: {money(as_number(cell.value))}",
-                          locations=[(sheet.name, cell.coord)], impact=abs(as_number(cell.value)),
-                          fix="If it should be calculated, copy the formula from the cell above."))
+            by_column[cell.col].append(cell)
+        for col, cells in by_column.items():
+            listing = ", ".join(f"{c.coord} = {money(as_number(c.value))}" for c in cells[:6]) + (" ..." if len(cells) > 6 else "")
+            ctx.add(Issue("typed_among_formulas", "medium",
+                          f"{sheet.name}!{cells[0].coord} is a typed number between formulas" if len(cells) == 1 else
+                          f"{len(cells)} typed numbers between formulas in column {a1(1, col)[:-1]} of '{sheet.name}'",
+                          "The cells directly above and below are formulas, but " + ("this one is a number someone typed. " if len(cells) == 1 else
+                          "these are numbers someone typed. ") + "They will not change when the data changes.",
+                          evidence=listing, locations=[(sheet.name, c.coord) for c in cells],
+                          impact=sum(abs(as_number(c.value)) for c in cells),
+                          fix="If they should be calculated, copy the formula from the cell above."))
 
 
 # ---------------------------------------------------------------------------------------------------------------
