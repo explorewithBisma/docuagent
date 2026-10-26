@@ -63,6 +63,7 @@ class Analysis:
     checks: list = field(default_factory=list)
     unmatched: pd.DataFrame = None      # Description | Count | Total: expenses still without a category
     ai_assigned: int = 0
+    ai_info: dict = None                # {'provider', 'model'} once the AI step has run
 
     @property
     def config(self) -> BudgetConfig:
@@ -271,7 +272,7 @@ def _please_check(analysis: Analysis) -> list:
 # ONE-CLICK ACTIONS
 # ---------------------------------------------------------------------------
 
-def apply_ai(analysis: Analysis, assignments: dict) -> Analysis:
+def apply_ai(analysis: Analysis, assignments: dict, ai_info: dict = None) -> Analysis:
     """Give expenses without a category the AI's suggestion ({description: (category, confidence)}); each such row is
     flagged 'AI suggested (confidence)'. Rows that already have a category are never changed."""
     wanted = {description.casefold(): value for description, value in assignments.items()}
@@ -283,7 +284,7 @@ def apply_ai(analysis: Analysis, assignments: dict) -> Analysis:
             rows.at[index, "Category"] = category
             rows.at[index, "Flags"] = "; ".join(flags + [f"AI suggested ({confidence})"])
             count += 1
-    return refresh(replace(analysis, rows=rows, ai_assigned=analysis.ai_assigned + count))
+    return refresh(replace(analysis, rows=rows, ai_assigned=analysis.ai_assigned + count, ai_info=ai_info or analysis.ai_info))
 
 
 def switch_payments(analysis: Analysis, new_type: str) -> Analysis:
@@ -325,3 +326,29 @@ def summary_lines(analysis: Analysis) -> list:
     lines.append(("Categories", f"{len(analysis.categories)} ({len(used)} used, {with_budget} with a budget)",
                   analysis.budgets.source if analysis.budgets.value else "keyword map; no budget table found", analysis.budgets.confidence))
     return lines
+
+
+def import_info(analysis: Analysis, rows: pd.DataFrame) -> importer.ImportResult:
+    """The ImportResult the workbook's 'Import Notes' sheet is written from: the final (possibly edited) rows, counts
+    recomputed from them, and every note - merges, duplicates, the AI step and the sanity check."""
+    flags = rows["Flags"].astype(str)
+    stats = dict(analysis.import_result.stats)
+    stats.update({"rows": len(rows), "fill_down": int(flags.str.contains("date filled down").sum()),
+                  "no_date": int(flags.str.contains("no date").sum()),
+                  "uncategorised": int(((rows["Type"] == EXPENSE) & rows["Category"].isna()).sum())})
+    notes = list(analysis.notes)
+    notes.append(f"Currency {analysis.currency.value} ({analysis.currency.confidence}): {analysis.currency.source}.")
+    notes.append(f"Month {analysis.month.value:%B %Y} ({analysis.month.confidence}): {analysis.month.source}.")
+    notes.append(f"Opening balance {analysis.opening.value:,.2f} ({analysis.opening.confidence}): {analysis.opening.source}.")
+    if analysis.income.value:
+        notes.append(f"Income {analysis.income.value:,.2f}: {analysis.income.source}.")
+    if analysis.payments.value:
+        notes.append(f"Loan / card payments {analysis.payments.value:,.2f}: {analysis.payments.source}.")
+    if analysis.ai_info:
+        notes.append(f"{analysis.ai_assigned} categories were suggested by AI ({analysis.ai_info.get('provider')}, "
+                     f"{analysis.ai_info.get('model')}); only the description texts were sent. They are marked 'AI suggested'.")
+    difference = analysis.closing_difference
+    if difference:
+        notes.append(f"Sanity check: the file's own estimated closing balance is {difference[0]:,.2f}; ours is "
+                     f"{difference[1]:,.2f} (difference {difference[2]:,.2f}).")
+    return replace(analysis.import_result, rows=rows, stats=stats, notes=notes)

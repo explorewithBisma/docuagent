@@ -459,3 +459,26 @@ file is made.
 
 **Tests:** the Dashboard formulas are recalculated without Excel with the `formulas` package
 (`pip install -r requirements-dev.txt`) and compared with plain pandas.
+
+
+### Upload and go (budget mode)
+
+Upload a workbook and the app works out the rest, then shows one **"What I found"** card: currency, month, opening
+balance, income, expenses, loan / card payments, categories and budgets - each with where it came from and how sure
+the app is - plus a short **Please check** list of only the uncertain things. Click **Looks good, build my sheet**, or
+**Edit details** to open the usual sections (everything stays editable).
+
+- *Currency*: the amount header ("Amount (AED)"), symbols in cells, sheet titles, else the locale default.
+- *Month*: the most common month in the dates. *Opening balance*: a labelled number such as "May 2026 Closing Balance"
+  on another sheet (this month's own "estimated closing" is rejected; other candidates are listed).
+- *Budgets*: a Category | Budget table on another sheet (the one that adds up to its own total wins; names match
+  ignoring emojis, capitals and punctuation).
+- *Income list* and *loan / card payment log* sheets are imported. Payments from a loan / card log are recorded as
+  **Loan payment**; the Please-check list always offers a one-click switch to **Card bill payment**
+  (Loan payment = paying back a loan or instalment plan; Card bill payment = paying your credit card bill for purchases
+  already counted as expenses).
+- *Categories*: the file's own (merged into ours when obvious, e.g. "Food/Grocery" -> "Food"), then the keyword map, then a
+  typo-tolerant match. The rest can go to the AI with **one click on the card** (off by default): only the distinct
+  description texts and your category names are sent - never amounts, dates or other columns. AI categories are marked
+  "AI suggested" in the review table and in Import Notes. With no API key the step is skipped.
+- A sanity check compares your file's own estimated closing balance with the one calculated here (information only).

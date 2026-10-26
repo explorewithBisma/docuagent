@@ -481,7 +481,7 @@ def _build_import_notes(wb, import_info) -> None:
     row += 2
     flagged = import_info.rows[import_info.rows["Flags"].astype(str).str.len() > 0]
     for _, record in flagged.iterrows():
-        ws.cell(row=row, column=1, value=int(record["Source row"]))
+        ws.cell(row=row, column=1, value=int(record["Source row"]) if not is_blank(record["Source row"]) else "other sheet")
         _text(ws.cell(row=row, column=2), str(record["Description"]))
         if isinstance(record["Date"], date):
             ws.cell(row=row, column=3, value=record["Date"]).number_format = "dd mmm yyyy"
