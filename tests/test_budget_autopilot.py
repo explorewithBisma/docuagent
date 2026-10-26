@@ -10,7 +10,7 @@ sys.path.insert(0, str(_Path(__file__).resolve().parent))
 
 import openpyxl
 import pandas as pd
-from budget import autopilot, categorize
+from budget import autopilot, categorize, prepare
 from budget_fixtures import messy_budget_bytes, personal_style_bytes
 
 DATA = personal_style_bytes()
@@ -132,4 +132,27 @@ try:
     raise AssertionError("should fail")
 except ValueError as error:
     assert "No transaction log was found" in str(error)
+print("PASSED")
+
+
+print("TEST: payment methods that differ only by capitals are one method (the workbook builds); zero-amount template rows are blank")
+book = openpyxl.load_workbook(io.BytesIO(DATA))
+log = book["📝 Daily Log"]
+log["F10"] = "cash"                                     # the Metro row
+log.insert_rows(13)
+for column, value in enumerate([None, None, None, None, 0, "Debit Card", None], start=1):
+    log.cell(row=13, column=column, value=value)
+buffer = io.BytesIO()
+book.save(buffer)
+F = autopilot.analyze(buffer.getvalue())
+assert "Cash" in F.config.payment_methods and "cash" not in F.config.payment_methods and len(set(m.casefold() for m in F.config.payment_methods)) == len(F.config.payment_methods)
+assert F.rows.loc[F.rows["Description"] == "Metro", "Payment method"].iloc[0] == "Cash"
+assert F.import_result.stats["blank_rows"] == 2 and "(no description)" not in set(F.rows["Description"])
+from budget.workbook import build_workbook
+rows, config, problems, notes = prepare.finalize(F.rows, F.config)
+assert not problems and build_workbook(config, F.keyword_map, rows, autopilot.import_info(F, F.rows))
+print("PASSED")
+
+print("TEST: when two budget tables disagree the Please-check text says which one is used")
+assert any(c.kind == "budget" and c.text.endswith("Using the table on sheet 'Monthly Summary'.") for c in A.checks), [c.text for c in A.checks if c.kind == "budget"]
 print("PASSED")

@@ -21,7 +21,7 @@ from datetime import date
 import pandas as pd
 
 from budget import carryover, categorize, detect, importer, names, prepare
-from budget.model import (CARD_BILL, EXPENSE, INCOME, LOAN_PAYMENT, TX_COLUMNS, BudgetConfig)
+from budget.model import (CARD_BILL, DEFAULT_PAYMENT_METHODS, EXPENSE, INCOME, LOAN_PAYMENT, TX_COLUMNS, BudgetConfig)
 from quality import is_blank
 
 UNUSUAL_FACTOR = 10          # an expense this many times the median is listed as unusual
@@ -69,7 +69,7 @@ class Analysis:
     def config(self) -> BudgetConfig:
         return BudgetConfig(currency=self.currency.value, month_start=self.month.value, opening_balance=float(self.opening.value),
                             categories=dict(self.categories),
-                            payment_methods=list(dict.fromkeys(["Cash", "Card", "Credit card", "Bank transfer", "Wallet"]
+                            payment_methods=list(dict.fromkeys(list(DEFAULT_PAYMENT_METHODS)
                                                                + [m for m in self.rows["Payment method"].dropna()])))
 
     @property
@@ -116,7 +116,7 @@ def analyze(file_bytes: bytes, is_csv: bool = False, keyword_map: dict = None, l
             notes.append(f"{skipped} {label} row(s) from the other sheets were already in the log and were not added twice.")
     rows = _chronological(pd.concat([f for f in (income_rows, rows, payment_rows) if not f.empty], ignore_index=True))
     rows = importer.flag_outside_month(rows, month.value)
-    rows["Payment method"] = _canonical_methods(rows["Payment method"])
+    rows["Payment method"] = _canonical_methods(rows["Payment method"], DEFAULT_PAYMENT_METHODS)
 
     opening = detect.detect_opening_balance(raw_sheets, main, month.value)
     own_closing = detect.detect_own_closing(raw_sheets, main, month.value)
@@ -176,9 +176,9 @@ def _chronological(rows: pd.DataFrame) -> pd.DataFrame:
     return rows.iloc[order].reset_index(drop=True)
 
 
-def _canonical_methods(series: pd.Series) -> pd.Series:
-    """'cash' and 'Cash' are one payment method: use the first spelling seen."""
-    first = {}
+def _canonical_methods(series: pd.Series, preferred=()) -> pd.Series:
+    """'cash' and 'Cash' are one payment method: use the preferred spelling if there is one, else the first seen."""
+    first = {method.casefold(): method for method in preferred}
     return series.map(lambda m: None if is_blank(m) else first.setdefault(str(m).strip().casefold(), str(m).strip()))
 
 
@@ -235,7 +235,7 @@ def _please_check(analysis: Analysis) -> list:
         checks.append(CheckItem("month", f"Month {analysis.month.value:%B %Y} is {analysis.month.confidence}-confidence "
                                          f"({analysis.month.source})."))
     for label, source in analysis.budgets.alternatives:
-        checks.append(CheckItem("budget", f"Budgets disagree between sheets - {source}. Using the table that adds up."))
+        checks.append(CheckItem("budget", f"Budgets disagree between sheets - {source}. Using the {analysis.budgets.source.split(' (')[0]}."))
 
     # categories: biggest amounts first; guessed (typo / AI) ones and the ones still without a category
     expenses = rows[rows["Type"] == EXPENSE]

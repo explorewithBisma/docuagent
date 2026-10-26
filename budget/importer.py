@@ -292,8 +292,8 @@ def import_transactions(raw: pd.DataFrame, layout: dict, keyword_map: dict, loca
         date_cell = cell(row, "date")
         category_cell = _clean_text(cell(row, "category"))
 
-        if not description and amount is None and is_blank(date_cell) and not category_cell:
-            blank_rows += 1                   # nothing but, say, a pre-filled payment method: an empty template row
+        if not description and amount in (None, 0) and is_blank(date_cell) and not category_cell:
+            blank_rows += 1                   # nothing but, say, a pre-filled payment method or a 0: an empty template row
             continue
 
         def drop(reason):
