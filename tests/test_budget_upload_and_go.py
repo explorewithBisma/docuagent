@@ -143,6 +143,26 @@ with clean_env():
     assert workbook(at)["Settings"]["B5"].value == 500
     print("PASSED")
 
+    print("TEST: the summary card refreshes after edits in 'Edit details' (opening balance, currency, month)")
+    at = new_app()
+    assert "AED 11,236.00" in card_text(at)
+    button(at, "bd_edit_details").click()
+    run(at)
+    next(n for n in at.number_input if n.label == "Opening balance").set_value(500.0)
+    run(at)
+    text = card_text(at)
+    assert "AED 500.00" in text and "AED 11,236.00" not in text and "from edited by you" in text
+    assert "the one calculated here is 4,619.00" in text, "the sanity check follows: 500 + 7,225 - 2,105.50 - 1,000.50"
+    assert not any("Opening balance" in m.value and "Account Balance" in m.value for m in at.markdown)
+    next(s for s in at.selectbox if s.label == "Currency").select("$")
+    run(at)
+    text = card_text(at)
+    assert "$ 500.00" in text and "$ 7,225.00" in text and "AED 500.00" not in text
+    next(s for s in at.selectbox if s.label == "Month").select(7)
+    run(at)
+    assert "July 2026" in card_text(at) and "June 2026" not in card_text(at).split("Please check")[0]
+    print("PASSED")
+
     print("TEST: 'Let me choose the columns myself' switches to the manual column picker")
     at = new_app()
     next(c for c in at.checkbox if c.label == "Let me choose the columns myself").check()

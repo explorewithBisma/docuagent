@@ -166,7 +166,48 @@ assert "Other" in unsure.categories and unsure.categories["Other"] == 0 and "Oth
 top = unsure.checks[0]
 assert top.kind == "ai_low" and top.text.startswith("The AI is not sure about 'Aster'") and "Please pick the right category" in top.text
 assert [c.kind for c in unsure.checks[:2]] == ["ai_low", "payments"], "above even the payments item"
-assert unsure.rows.loc[unsure.rows["Description"] == "Aster", "Flags"].str.contains("AI suggested \(low\)").all()
+assert unsure.rows.loc[unsure.rows["Description"] == "Aster", "Flags"].str.contains("AI suggested (low)", regex=False).all()
 fresh = autopilot.apply_ai(base, {"Aster": ("Brand New Category", "low")})
 assert fresh.categories["Brand New Category"] == 0, "a category the answer introduced is added to the settings"
+print("PASSED")
+
+
+print("TEST: with_edits - the card follows the user's edits: settings and rows, 'edited by you', recomputed checks")
+from dataclasses import replace as _replace
+base = autopilot.analyze(DATA)
+config = base.config
+edited_config = type(config)(currency="$", month_start=date(2026, 7, 1), opening_balance=500.0,
+                             categories={**config.categories, "Food": 1500.0}, payment_methods=config.payment_methods)
+current = autopilot.with_edits(base, edited_config, base.rows)
+assert (current.currency.value, current.currency.source, current.currency.confidence) == ("$", "edited by you", "high")
+assert (current.month.value, current.month.source) == (date(2026, 7, 1), "edited by you")
+assert (current.opening.value, current.opening.source) == (500.0, "edited by you")
+assert current.budgets.source == "edited by you" and current.categories["Food"] == 1500
+lines = {label: (value, source) for label, value, source, _ in autopilot.summary_lines(current)}
+assert lines["Currency"] == ("$", "edited by you") and lines["Month"][0] == "July 2026" and lines["Opening balance"] == ("$ 500.00", "edited by you")
+assert base.currency.value == "AED" and base.opening.value == 11236, "the original analysis is not modified"
+untouched = autopilot.with_edits(base, config, base.rows)
+assert untouched.currency is base.currency and untouched.opening is base.opening and untouched.month is base.month
+assert [c.text for c in untouched.checks] == [c.text for c in base.checks]
+print("PASSED")
+
+print("TEST: with_edits - assigning categories in the review table shrinks the unmatched list and the Please-check list")
+rows = base.rows.copy()
+rows.loc[rows["Description"].isin(["malabar", "Aster"]), "Category"] = "Food"
+rows["Flags"] = rows["Flags"].str.replace("no category", "", regex=False)
+current = autopilot.with_edits(base, config, rows)
+assert current.unmatched.empty and not any(c.text.startswith(("'Aster'", "'malabar'")) for c in current.checks)
+assert any(c.kind == "category" for c in base.checks) and not any(c.text.startswith("'Aster' has no category") for c in current.checks)
+print("PASSED")
+
+print("TEST: with_edits - editing income or payment rows is shown as an edit, and the payment text follows the rows' Type")
+rows = base.rows.copy()
+rows.loc[rows["Type"] == "Income", "Amount"] = 9000.0
+rows.loc[rows["Type"] == "Loan payment", "Type"] = "Card bill payment"
+current = autopilot.with_edits(base, config, rows)
+lines = {label: (value, source) for label, value, source, _ in autopilot.summary_lines(current)}
+assert lines["Income"][1] == "edited by you" and lines["Income"][0].startswith("AED 9,000.00")
+assert current.checks[0].kind == "payments" and "are recorded as Card bill payment" in current.checks[0].text
+assert current.checks[0].action == "switch_payments_to_loan"
+assert abs(current.closing_balance - (11236 + 9000 - 2105.5)) < 0.005, "card bill payments are not part of the closing balance"
 print("PASSED")

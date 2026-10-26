@@ -296,6 +296,27 @@ def apply_ai(analysis: Analysis, assignments: dict, ai_info: dict = None) -> Ana
                            ai_info=ai_info or analysis.ai_info))
 
 
+def with_edits(analysis: Analysis, config: BudgetConfig, rows: pd.DataFrame) -> Analysis:
+    """The analysis as it stands after the user's edits: the currency, month, opening balance and category budgets from
+    the settings they are looking at, and the (possibly edited) rows. Anything they changed is shown as 'edited by you'
+    with full confidence; the unmatched list and the Please-check list are recomputed from the new rows."""
+    def edited(finding: detect.Finding, value, changed: bool) -> detect.Finding:
+        return detect.Finding(value, "high", "edited by you") if changed else finding
+
+    currency = edited(analysis.currency, config.currency, str(config.currency) != str(analysis.currency.value))
+    month = edited(analysis.month, config.month_start, config.month_start != analysis.month.value)
+    opening = edited(analysis.opening, float(config.opening_balance),
+                     abs(float(config.opening_balance) - float(analysis.opening.value)) > 0.005)
+    budgets = edited(analysis.budgets, analysis.budgets.value, dict(config.categories) != dict(analysis.categories))
+    rows = rows.copy()
+    for column in ("Flags", "Source row"):
+        if column not in rows.columns:
+            rows[column] = None
+    rows["Flags"] = rows["Flags"].map(lambda f: "" if is_blank(f) else str(f))
+    return refresh(replace(analysis, currency=currency, month=month, opening=opening, budgets=budgets,
+                           categories=dict(config.categories), rows=rows))
+
+
 def switch_payments(analysis: Analysis, new_type: str) -> Analysis:
     """Record the loan / card log payments as `new_type` (Loan payment or Card bill payment) instead."""
     rows = analysis.rows.copy()
@@ -311,6 +332,13 @@ def switch_payments(analysis: Analysis, new_type: str) -> Analysis:
 # WHAT TO SHOW
 # ---------------------------------------------------------------------------
 
+def _source_or_edit(finding: detect.Finding, current_total: float, empty_text: str) -> str:
+    """The finding's source while the rows still add up to what was detected, 'edited by you' once they do not."""
+    if abs(current_total - float(finding.value)) >= 0.005:
+        return "edited by you"
+    return finding.source if current_total else empty_text
+
+
 def summary_lines(analysis: Analysis) -> list:
     """[(label, value text, source, confidence)] for the summary card."""
     cur = str(analysis.currency.value)
@@ -322,14 +350,17 @@ def summary_lines(analysis: Analysis) -> list:
         ("Month", f"{analysis.month.value:%B %Y}", analysis.month.source, analysis.month.confidence),
         ("Opening balance", _money(float(analysis.opening.value), cur), analysis.opening.source, analysis.opening.confidence),
         ("Income", _money(float(income["Amount"].sum()), cur) + f" ({len(income)} source(s))",
-         analysis.income.source if len(income) else "no income list found - add income rows in the review table", analysis.income.confidence),
+         _source_or_edit(analysis.income, float(income["Amount"].sum()), "no income list found - add income rows in the review table"),
+         analysis.income.confidence if abs(float(income["Amount"].sum()) - float(analysis.income.value)) < 0.005 else "high"),
         ("Expenses", f"{len(expenses)} rows, {_money(float(expenses['Amount'].sum()), cur)}",
          f"sheet '{names.display_name(analysis.main_sheet)}'", "high"),
     ]
     payments = rows[rows["Type"].isin([LOAN_PAYMENT, CARD_BILL]) & rows["Flags"].astype(str).str.contains(PAYMENT_FLAG)]
     if len(payments):
         lines.append(("Loan / card payments", f"{len(payments)} payment(s), {_money(float(payments['Amount'].sum()), cur)} "
-                                              f"(recorded as {payments['Type'].iloc[0]})", analysis.payments.source, analysis.payments.confidence))
+                                              f"(recorded as {payments['Type'].iloc[0]})",
+                      _source_or_edit(analysis.payments, float(payments["Amount"].sum()), ""),
+                      analysis.payments.confidence if abs(float(payments["Amount"].sum()) - float(analysis.payments.value)) < 0.005 else "high"))
     used = sorted({c for c in expenses["Category"].dropna()}, key=str.casefold)
     with_budget = sum(1 for v in analysis.categories.values() if v > 0)
     lines.append(("Categories", f"{len(analysis.categories)} ({len(used)} used, {with_budget} with a budget)",

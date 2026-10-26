@@ -181,34 +181,36 @@ if st.session_state.bd_kmap is None:
     st.session_state.bd_kmap = generated.keyword_map if generated else categorize.default_keyword_map()
 
 # --- the summary card (upload and go) ---------------------------------------------------------
-build_now = False
-if analysis is not None:
+def render_card(current) -> bool:
+    """Draw the 'What I found' card from `current` (the detected values with the user's edits applied). True when
+    'Looks good, build my sheet' was clicked."""
+    build_now = False
     st.header("What I found")
     with st.container(border=True):
-        for label, value, source, confidence in autopilot.summary_lines(analysis):
+        for label, value, source, confidence in autopilot.summary_lines(current):
             left, middle = st.columns([2, 5])
             left.markdown(f"**{label}**")
             middle.markdown(f"{value} &nbsp; {BADGE[confidence]}")
             middle.caption(f"from {source}")
-        difference = analysis.closing_difference
+        difference = current.closing_difference
         if difference:
             theirs, ours, gap = difference
             st.caption(f"Sanity check: your file's own estimated closing balance is {theirs:,.2f}; the one calculated here is "
                        f"{ours:,.2f} (difference {gap:,.2f}). For information only - the two can differ when the file counts "
                        "things differently.")
-        for note in analysis.notes:
+        for note in current.notes:
             st.caption("ℹ " + note)
 
-        unmatched = analysis.unmatched
+        unmatched = current.unmatched
         if len(unmatched):
             available, reason = ai_categories.ai_available()
-            st.warning(f"**{len(unmatched)} description(s) ({analysis.currency.value} {unmatched['Total'].sum():,.2f} total) "
+            st.warning(f"**{len(unmatched)} description(s) ({current.currency.value} {unmatched['Total'].sum():,.2f} total) "
                        "couldn't be categorised.** Use AI to suggest categories? Only the description text is sent - "
                        "never amounts, dates or anything else.")
             if st.button("Use AI to suggest categories", key="bd_use_ai", disabled=not available):
                 try:
-                    suggestion = ai_categories.suggest_categories(list(unmatched["Description"]), list(analysis.categories))
-                    updated = autopilot.apply_ai(analysis, suggestion["assignments"],
+                    suggestion = ai_categories.suggest_categories(list(unmatched["Description"]), list(current.categories))
+                    updated = autopilot.apply_ai(current, suggestion["assignments"],
                                                  {"provider": suggestion["provider"], "model": suggestion["model"]})
                     adopt_analysis(updated, f"AI suggested a category for {updated.ai_assigned} row(s) "
                                             f"({ai_rules.PROVIDER_LABELS[suggestion['provider']]}, {suggestion['model']}). "
@@ -218,23 +220,23 @@ if analysis is not None:
                     st.error(str(error))
             if not available:
                 st.caption(reason)
-        elif analysis.ai_assigned:
-            st.caption(f"{analysis.ai_assigned} categories were suggested by AI "
-                       f"({analysis.ai_info['provider']}, {analysis.ai_info['model']}).")
+        elif current.ai_assigned:
+            st.caption(f"{current.ai_assigned} categories were suggested by AI "
+                       f"({current.ai_info['provider']}, {current.ai_info['model']}).")
 
-        if analysis.checks:
+        if current.checks:
             st.markdown("**Please check**")
-            for item in analysis.checks[:CHECKS_SHOWN]:
+            for item in current.checks[:CHECKS_SHOWN]:
                 st.markdown(f"- {item.text}")
                 if item.action in ("switch_payments_to_card", "switch_payments_to_loan"):
                     to_card = item.action == "switch_payments_to_card"
                     if st.button("Switch to Card bill payment" if to_card else "Switch back to Loan payment",
                                  key=f"bd_{item.action}"):
-                        adopt_analysis(autopilot.switch_payments(analysis, "Card bill payment" if to_card else "Loan payment"),
+                        adopt_analysis(autopilot.switch_payments(current, "Card bill payment" if to_card else "Loan payment"),
                                        "Payments switched.")
                         st.rerun()
-            if len(analysis.checks) > CHECKS_SHOWN:
-                st.caption(f"... and {len(analysis.checks) - CHECKS_SHOWN} more in the review table below.")
+            if len(current.checks) > CHECKS_SHOWN:
+                st.caption(f"... and {len(current.checks) - CHECKS_SHOWN} more in the review table below.")
         else:
             st.success("Nothing looks uncertain.")
 
@@ -243,7 +245,11 @@ if analysis is not None:
             build_now = True
         if actions[1].button("Edit details", key="bd_edit_details"):
             st.session_state.bd_edit_open = True
+            st.rerun()                      # the sections above this card were already drawn closed: draw them again, open
+    return build_now
 
+
+card_slot = st.container() if analysis is not None else None      # filled in after the sections, so it shows their edits
 output_slot = st.container() if analysis is not None else None      # the finished file appears right under the card
 
 # --- the editable sections ------------------------------------------------------------------------
@@ -418,6 +424,12 @@ with sections:
                     st.session_state.bd_message = f"Restored {len(chosen)} row(s)."
                     st.rerun()
         st.caption("Yellow dates, a *Flags* text and the Import Notes sheet show everything the app changed or guessed.")
+
+# --- the summary card, drawn last so it reflects every edit made above -----------------------------
+build_now = False
+if analysis is not None:
+    with card_slot:
+        build_now = render_card(autopilot.with_edits(analysis, config, final_rows))
 
 # --- 5. Build ---------------------------------------------------------------------------------
 st.header(f"{'5' if kind == 'import' else '4'}. Build your workbook")
