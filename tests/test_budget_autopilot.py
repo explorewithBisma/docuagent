@@ -86,11 +86,11 @@ print("PASSED")
 
 print("TEST: AI answers are applied only to uncategorised expenses, flagged 'AI suggested', and move out of the unmatched list")
 snapshot = A.rows.copy(deep=True)
-B = autopilot.apply_ai(A, {"malabar": ("Food", "medium"), "ASTER": ("Health", "high"), "Taxi": ("Bills", "high")})
+B = autopilot.apply_ai(A, {"malabar": ("Food", "medium"), "ASTER": ("Health", "medium"), "Taxi": ("Bills", "high")})
 assert A.rows.equals(snapshot), "the original analysis is not modified"
 assert B.ai_assigned == 2 and B.unmatched.empty
 ai_rows = B.rows[B.rows["Flags"].str.contains("AI suggested")]
-assert sorted(ai_rows["Description"]) == ["Aster", "malabar"] and set(ai_rows["Flags"].str.extract(r"AI suggested \((\w+)\)")[0]) == {"medium", "high"}
+assert sorted(ai_rows["Description"]) == ["Aster", "malabar"] and set(ai_rows["Flags"].str.extract(r"AI suggested \((\w+)\)")[0]) == {"medium"}
 assert B.rows.loc[B.rows["Description"] == "Taxi", "Category"].iloc[0] == "Transport", "an existing category is never overwritten"
 assert not ai_rows["Flags"].str.contains("no category").any()
 assert any("AI suggested (medium)" in c.text for c in B.checks if c.kind == "category")
@@ -156,4 +156,17 @@ print("PASSED")
 
 print("TEST: when two budget tables disagree the Please-check text says which one is used")
 assert any(c.kind == "budget" and c.text.endswith("Using the table on sheet 'Monthly Summary'.") for c in A.checks), [c.text for c in A.checks if c.kind == "budget"]
+print("PASSED")
+
+
+print("TEST: an unsure AI answer ('TapTap' -> Other, low) goes to the very top of the Please-check list, above everything else")
+base = autopilot.analyze(DATA)
+unsure = autopilot.apply_ai(base, {"malabar": ("Food", "medium"), "Aster": ("Other", "low")})
+assert "Other" in unsure.categories and unsure.categories["Other"] == 0 and "Other" in autopilot.analyze(DATA).categories
+top = unsure.checks[0]
+assert top.kind == "ai_low" and top.text.startswith("The AI is not sure about 'Aster'") and "Please pick the right category" in top.text
+assert [c.kind for c in unsure.checks[:2]] == ["ai_low", "payments"], "above even the payments item"
+assert unsure.rows.loc[unsure.rows["Description"] == "Aster", "Flags"].str.contains("AI suggested \(low\)").all()
+fresh = autopilot.apply_ai(base, {"Aster": ("Brand New Category", "low")})
+assert fresh.categories["Brand New Category"] == 0, "a category the answer introduced is added to the settings"
 print("PASSED")

@@ -19,6 +19,8 @@ import ai_rules
 from ai_rules import AISuggestionError, PROVIDER_LABELS, model_for, select_provider
 from quality import is_blank
 
+OTHER = "Other"             # always an allowed answer: "none of your categories / I can't tell"
+MAX_CONFIDENCE = "medium"   # every description sent here already failed the keyword map, so the AI is never "high"
 MAX_DESCRIPTIONS = 150
 MAX_DESCRIPTION_LENGTH = 80
 CONFIDENCES = ("high", "medium", "low")
@@ -60,14 +62,23 @@ def clean_descriptions(descriptions) -> list:
     return result[:MAX_DESCRIPTIONS]
 
 
+def allowed_categories(categories) -> list:
+    """Our categories plus 'Other' (the answer for 'none of these / I don't know')."""
+    names = list(categories)
+    return names if any(str(n).casefold() == OTHER.casefold() for n in names) else names + [OTHER]
+
+
 def build_prompt(descriptions: list, categories: list) -> str:
     """The whole text sent to the AI: instructions, our category names and the description texts. Nothing else."""
     return (
         "You help sort personal spending into budget categories.\n"
         "Below are short descriptions of purchases (shop names, items, sometimes in a mix of languages or with typos), "
-        "and the allowed categories. For each description choose the single best category from the list, or an empty "
-        "string if you cannot tell. Never invent a category that is not in the list. Give a confidence: "
-        "'high' when the description clearly belongs there, 'medium' when likely, 'low' when it is a guess.\n\n"
+        "and the allowed categories. For each description choose the single best category from the list. Never invent "
+        "a category that is not in the list.\n"
+        "Be honest about how sure you are. Confidence 'high' is only for a description whose own words name the kind "
+        "of purchase. A brand or shop name that you do not clearly recognise, or that could belong to more than one "
+        "category (for example an app that might be a taxi service or a money-transfer service), must get confidence "
+        "'low' - and category 'Other' if you have no good guess. A wrong confident answer is worse than an honest 'low'.\n\n"
         f"Allowed categories: {json.dumps(list(categories), ensure_ascii=False)}\n\n"
         f"Descriptions: {json.dumps(list(descriptions), ensure_ascii=False)}\n\n"
         'Respond with JSON only: {"categories": [{"description": "...", "category": "...", "confidence": "high|medium|low"}]} '
@@ -79,7 +90,7 @@ def validate_answer(answer, sent: list, categories: list):
     """({description: (category, confidence)}, dropped) from the parsed AI answer. A description we did not send,
     a category outside our list, an empty category or a repeated description is dropped with a reason."""
     sent_by_key = {text.casefold(): text for text in sent}
-    allowed = {name.casefold(): name for name in categories}
+    allowed = {name.casefold(): name for name in allowed_categories(categories)}
     assigned, dropped = {}, []
     items = answer.get("categories") if isinstance(answer, dict) else None
     if not isinstance(items, list):
@@ -100,7 +111,10 @@ def validate_answer(answer, sent: list, categories: list):
         elif original in assigned:
             dropped.append({"description": original, "reason": "answered twice"})
         else:
-            assigned[original] = (allowed[category.casefold()], confidence if confidence in CONFIDENCES else "low")
+            confidence = confidence if confidence in CONFIDENCES else "low"
+            if CONFIDENCES.index(confidence) < CONFIDENCES.index(MAX_CONFIDENCE):
+                confidence = MAX_CONFIDENCE
+            assigned[original] = (allowed[category.casefold()], confidence)
     return assigned, dropped
 
 
@@ -109,7 +123,7 @@ def suggest_categories(descriptions, categories: list, provider: str = None) -> 
     "provider", "model", "sent": [descriptions that were sent]}. Raises AISuggestionError with a readable message."""
     sent = clean_descriptions(descriptions)
     provider = provider or select_provider()
-    prompt = build_prompt(sent, categories)
+    prompt = build_prompt(sent, allowed_categories(categories))
     text = ai_rules._call_groq(prompt) if provider == "groq" else ai_rules._call_anthropic(prompt, CATEGORY_SCHEMA)
     try:
         answer = json.loads(ai_rules._final_answer_text(text))

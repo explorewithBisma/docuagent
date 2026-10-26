@@ -47,7 +47,7 @@ answer = {"categories": [{"description": "malabar", "category": "food", "confide
                          {"description": "Nesto", "category": "Food", "confidence": "HIGH"}]}
 with mock.patch.object(ai_rules, "_call_groq", fake_groq(answer)):
     result = ai.suggest_categories(["malabar", "Nesto", "Aster pharmacy"], CATEGORIES, "groq")
-assert result["assignments"] == {"malabar": ("Food", "medium"), "Aster pharmacy": ("Health", "high"), "Nesto": ("Food", "high")}
+assert result["assignments"] == {"malabar": ("Food", "medium"), "Aster pharmacy": ("Health", "medium"), "Nesto": ("Food", "medium")},     "the AI is never 'high' about a description the keyword map could not place"
 assert result["provider"] == "groq" and result["model"] == ai_rules.model_for("groq") and result["dropped"] == []
 assert result["sent"] == ["malabar", "Nesto", "Aster pharmacy"]
 print("PASSED")
@@ -102,4 +102,22 @@ with mock.patch.dict("os.environ", {}, clear=True):
         raise AssertionError("should fail")
     except ai_rules.AISuggestionError as error:
         assert "GROQ_API_KEY" in str(error)
+print("PASSED")
+
+
+print("TEST: 'Other' is always an allowed answer; the prompt tells the AI to be honest and to say 'low' for unknown brands")
+assert ai.allowed_categories(["Food", "Bills"]) == ["Food", "Bills", "Other"] and ai.allowed_categories(["Food", "other"]) == ["Food", "other"]
+prompt = ai.build_prompt(["TapTap"], ai.allowed_categories(CATEGORIES))
+assert '"Other"' in prompt and "must get confidence 'low'" in prompt and "money-transfer service" in prompt
+answer = {"categories": [{"description": "TapTap", "category": "Other", "confidence": "low"}]}
+with mock.patch.object(ai_rules, "_call_groq", fake_groq(answer)):
+    result = ai.suggest_categories(["TapTap"], CATEGORIES, "groq")             # "Other" is not in CATEGORIES but is allowed
+assert result["assignments"] == {"TapTap": ("Other", "low")} and "'Other' if you have no good guess" in sent_prompts[-1]
+print("PASSED")
+
+print("TEST: confidence is capped at medium; low stays low; nothing is ever 'high'")
+answer = {"categories": [{"description": "a", "category": "Food", "confidence": "high"}, {"description": "b", "category": "Food", "confidence": "medium"},
+                         {"description": "c", "category": "Food", "confidence": "low"}, {"description": "d", "category": "Food", "confidence": ""}]}
+assigned, _ = ai.validate_answer(answer, ["a", "b", "c", "d"], CATEGORIES)
+assert {k: v[1] for k, v in assigned.items()} == {"a": "medium", "b": "medium", "c": "low", "d": "low"}
 print("PASSED")

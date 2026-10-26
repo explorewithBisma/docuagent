@@ -182,7 +182,7 @@ with clean_env(GROQ_API_KEY="gsk_fake", AI_PROVIDER="groq"), mock.patch.object(a
     assert by_description["malabar"][3] == "Food" and by_description["Aster"][3] == "Health"
     notes = book["Import Notes"]
     text = " ".join(str(c.value) for row in notes.iter_rows() for c in row if c.value is not None)
-    assert "AI suggested (medium)" in text and "AI suggested (high)" in text
+    assert "AI suggested (medium)" in text and "AI suggested (high)" not in text
     assert "2 categories were suggested by AI (groq" in text and "only the description texts were sent" in text
     print("PASSED")
 

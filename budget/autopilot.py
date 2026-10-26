@@ -244,9 +244,14 @@ def _please_check(analysis: Analysis) -> list:
                                      key=lambda item: -item[1]["Amount"].sum()):
         how = str(group["Flags"].iloc[0]).split("; ")
         how = next((f for f in how if f.startswith(("category guessed", "AI suggested"))), "guessed")
+        total = float(group["Amount"].sum())
+        if how == "AI suggested (low)":      # the AI said it is not sure: this goes to the very top of the list
+            checks.append(CheckItem("ai_low", f"The AI is not sure about '{group['Description'].iloc[0]}' - it guessed "
+                                              f"{group['Category'].iloc[0]} ({how}); {len(group)} row(s), {_money(total, cur)}. "
+                                              "Please pick the right category.", total))
+            continue
         checks.append(CheckItem("category", f"'{group['Description'].iloc[0]}' → {group['Category'].iloc[0]} ({how}); "
-                                            f"{len(group)} row(s), {_money(float(group['Amount'].sum()), cur)}.",
-                                float(group["Amount"].sum())))
+                                            f"{len(group)} row(s), {_money(total, cur)}.", total))
     for _, item in analysis.unmatched.iterrows():
         checks.append(CheckItem("category", f"'{item['Description']}' has no category; {int(item['Count'])} row(s), "
                                             f"{_money(float(item['Total']), cur)}.", float(item["Total"])))
@@ -264,7 +269,7 @@ def _please_check(analysis: Analysis) -> list:
     if len(undated):
         checks.append(CheckItem("date", f"{len(undated)} row(s) have no usable date and are ignored by the Dashboard."))
 
-    order = {"payments": 0, "opening": 1, "currency": 2, "month": 3, "budget": 4, "type": 5, "unusual": 6, "date": 7, "category": 8}
+    order = {"ai_low": -1, "payments": 0, "opening": 1, "currency": 2, "month": 3, "budget": 4, "type": 5, "unusual": 6, "date": 7, "category": 8}
     return sorted(checks, key=lambda c: (order.get(c.kind, 9), -(c.amount or 0)))
 
 
@@ -277,14 +282,18 @@ def apply_ai(analysis: Analysis, assignments: dict, ai_info: dict = None) -> Ana
     flagged 'AI suggested (confidence)'. Rows that already have a category are never changed."""
     wanted = {description.casefold(): value for description, value in assignments.items()}
     rows, count = analysis.rows.copy(), 0
+    categories = dict(analysis.categories)
     for index, row in rows.iterrows():
         if row["Type"] == EXPENSE and is_blank(row["Category"]) and str(row["Description"]).casefold() in wanted:
             category, confidence = wanted[str(row["Description"]).casefold()]
             flags = [f for f in str(row["Flags"]).split("; ") if f and f != "no category"]
             rows.at[index, "Category"] = category
             rows.at[index, "Flags"] = "; ".join(flags + [f"AI suggested ({confidence})"])
+            if category.casefold() not in {name.casefold() for name in categories}:
+                categories[category] = 0.0            # e.g. "Other", which the AI may always answer
             count += 1
-    return refresh(replace(analysis, rows=rows, ai_assigned=analysis.ai_assigned + count, ai_info=ai_info or analysis.ai_info))
+    return refresh(replace(analysis, rows=rows, categories=categories, ai_assigned=analysis.ai_assigned + count,
+                           ai_info=ai_info or analysis.ai_info))
 
 
 def switch_payments(analysis: Analysis, new_type: str) -> Analysis:
