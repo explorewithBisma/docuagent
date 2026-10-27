@@ -45,9 +45,10 @@ report, ctx = analyze(fx.build_workbook())
 found = {(i.kind, s, c) for i in report.issues for s, c in i.locations}
 for planted in fx.PLANTED:
     assert planted in found, ("missed", planted, sorted(found))
-assert len(report.issues) == 9, [(i.kind, i.where) for i in report.issues]
+assert len(report.issues) == 11, [(i.kind, i.where) for i in report.issues]
 assert sorted(i.kind for i in report.issues) == sorted(["criteria_no_match", "cross_total", "cross_total", "cross_total", "formula_error",
-                                                       "range_short", "typed_among_formulas", "number_as_text", "budget_conflict"])
+                                                       "range_short", "typed_among_formulas", "number_as_text", "budget_conflict",
+                                                       "blank_criteria", "blank_criteria"])
 clean = {(fx.INCOME, c) for c in ("B4", "B7")} | {(fx.LOAN, "C9"), (fx.DASH, "B4"), (fx.LOG, f"E{fx.LOG_TOTAL_ROW}"), (fx.MONTHLY, "B4"), (fx.MONTHLY, "B7")}
 assert not (found & clean), found & clean
 print("PASSED")
@@ -90,7 +91,7 @@ print("TEST: facts - what each sheet does, in plain words, with evidence")
 facts = {f.label: f for f in report.facts}
 assert facts[fx.LOG].value.startswith("a transaction list: 40 rows") and "header row 3" in facts[fx.LOG].source and facts[fx.LOG].confidence == "high"
 assert facts[fx.MONTHLY].value.startswith("a summary that calculates from") and facts[fx.DAILY].value.startswith("a summary that calculates from")
-assert facts["This file"].value == "7 sheets, 85 formulas, 1 chart(s)"
+assert facts["This file"].value == "7 sheets, 86 formulas, 1 chart(s)"
 assert any("SUMIF/COUNTIF criteria match nothing and have no look-alike" in n for n in report.notes), "Housing: no spending, not reported but counted"
 print("PASSED")
 
@@ -295,4 +296,102 @@ data = make({"S": rows}, cached={**{("S", f"B{r}"): r * 2 for r in range(1, 8) i
 typed = issues_of(data, "typed_among_formulas")
 assert len(typed) == 1 and typed[0].locations == [("S", "B3"), ("S", "B5")] and "2 typed numbers between formulas in column B" in typed[0].title
 assert issues_of(data, "inconsistent_formula") == []
+print("PASSED")
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# One cause, one finding; criteria columns with blanks
+# ---------------------------------------------------------------------------------------------------------------------
+print("TEST: a Dashboard total that only reads the Monthly Summary figures is ONE finding with the Monthly Summary, not two")
+report, _ = analyze(fx.build_workbook())
+joined = [i for i in report.issues if i.kind == "cross_total" and (fx.MONTHLY, "B8") in i.locations]
+assert len(joined) == 1 and joined[0].locations == [(fx.MONTHLY, "B8"), (fx.DASH, "B12")]
+assert joined[0].title == f"{fx.MONTHLY}!B8 is short by 532.50; {fx.DASH}!B12 shows the same number", joined[0].title
+assert "just reads it" in joined[0].detail and "fixing" in joined[0].detail and joined[0].evidence.endswith(f"{fx.DASH}!B12 = 547.50")
+assert len([i for i in report.issues if i.kind == "cross_total"]) == 3, "the typed 11,755, the Daily Summary, and the joined pair"
+print("PASSED")
+
+
+def two_summaries(second_formula, second_value):
+    log = {"A3": "Date", "B3": "Description", "C3": "Category", "D3": "Amount (AED)"}
+    for i in range(8):
+        log.update({f"A{4 + i}": datetime(2026, 6, 1 + i), f"B{4 + i}": f"item {i}", f"C{4 + i}": "Food", f"D{4 + i}": 100})
+    sheets = {"Log": log,
+              "First": {"A1": "Category", "B1": "Spent (AED)", "A2": "Food", "B2": "=SUMIF(Log!C4:C11,A2,Log!D4:D11)*0+500", "A3": "Total", "B3": "=SUM(B2:B2)"},
+              "Second": {"A1": "Category", "B1": "Spent (AED)", "A2": "Food", "B2": second_formula, "A3": "Total", "B3": "=SUM(B2:B2)"}}
+    return make(sheets, cached={("First", "B2"): 500, ("First", "B3"): 500, ("Second", "B2"): second_value, ("Second", "B3"): second_value})
+
+
+print("TEST: not joined when the second total does not come from the first (a coincidence of numbers), or the numbers differ")
+report, _ = analyze(two_summaries("=250+250", 500))                           # also 500, but typed arithmetic, not read from 'First'
+assert len([i for i in report.issues if i.kind == "cross_total"]) == 2
+report, _ = analyze(two_summaries("=First!B2+1", 501))                        # reads 'First' but shows a different number
+assert len([i for i in report.issues if i.kind == "cross_total"]) == 2
+print("PASSED")
+
+print("TEST: joined when the second total reads the first through a chain of cells; the first one never joins the second")
+report, _ = analyze(two_summaries("=First!B2", 500))
+(one,) = [i for i in report.issues if i.kind == "cross_total"]
+assert one.locations == [("First", "B3"), ("Second", "B3")] and "is short by 300" in one.title and "Second!B3 shows the same number" in one.title
+print("PASSED")
+
+
+def dated_log(blank_rows, categories=False, amount=10):
+    """A log of 12 rows where `blank_rows` of them have an empty date (or category) cell, and a summary that looks up by that column."""
+    log = {"A3": "Date" if not categories else "Category", "B3": "Amount (AED)"}
+    for i in range(12):
+        value = None if i in blank_rows else (datetime(2026, 6, 1 + i) if not categories else f"cat{i % 2}")
+        log[f"A{4 + i}"] = value
+        log[f"B{4 + i}"] = amount
+    summary = {"A1": "Key", "B1": "Spent"}
+    cached = {}
+    for n in range(3):
+        key = datetime(2026, 6, 1 + n) if not categories else f"cat{n % 2}"
+        summary[f"A{2 + n}"] = key
+        summary[f"B{2 + n}"] = f"=SUMIF(Log!A4:A15,A{2 + n},Log!B4:B15)"
+        cached[("Summary", f"B{2 + n}")] = amount
+    return make({"Log": log, "Summary": summary}, cached)
+
+
+print("TEST: dates only on some rows - the rows and the money a SUMIF by date can never reach, and the suggestion to fill dates down")
+(blank,) = issues_of(dated_log(blank_rows={1, 2, 4, 5, 7, 8, 10, 11}), "blank_criteria")
+assert blank.title == "3 formulas skip 8 rows because Log!A4:A15 is blank on them" and blank.impact == 80
+assert "8 of the 12 rows that have an amount (80 of 120) have no date" in blank.detail and "written only on the first row of each day" in blank.detail
+assert blank.fix == "Fill the dates down in Log!A4:A15 (every row repeats the date above it)."
+assert blank.severity == "high" and blank.locations == [("Summary", "B2"), ("Summary", "B3"), ("Summary", "B4")]
+assert "blank rows: 5, 6, 8, 9, 11, 12, 14, 15" in blank.evidence
+print("PASSED")
+
+print("TEST: the same for a category column (no date suggestion), and severity follows the share of the money")
+(cat,) = issues_of(dated_log(blank_rows={0, 3, 6}, categories=True), "blank_criteria")
+assert cat.severity == "high", "exactly a quarter of the money is the line between medium and high"
+assert "are blank there" in cat.detail and "Give those rows a value" in cat.fix and "fill the dates" not in cat.fix.lower()
+assert cat.impact == 30
+sheets = {"Log": {"A3": "Cat", "B3": "Amt", **{f"A{4 + i}": (None if i < 3 else "x") for i in range(20)}, **{f"B{4 + i}": 10 for i in range(20)}},
+          "S": {"A1": '=SUMIF(Log!A4:A23,"x",Log!B4:B23)'}}
+(small,) = issues_of(make(sheets, {("S", "A1"): 170}), "blank_criteria")
+assert small.severity == "medium" and small.impact == 30, "3 of 20 rows (15% of the money) is worth checking, not serious"
+print("PASSED")
+
+print("TEST: stray gaps and criteria that ask for blanks on purpose are not reported; COUNTIF has no amount to lose")
+assert issues_of(dated_log(blank_rows={1, 2}), "blank_criteria") == [], "two blank rows are a gap, not a pattern"
+assert issues_of(dated_log(blank_rows=set()), "blank_criteria") == []
+by_hand = {"Log": {"A3": "Cat", "B3": "Amt", **{f"A{4 + i}": (None if i % 2 else "x") for i in range(10)}, **{f"B{4 + i}": 5 for i in range(10)}},
+           "S": {"A1": '=SUMIF(Log!A4:A13,"",Log!B4:B13)'}}
+assert issues_of(make(by_hand, {("S", "A1"): 25}), "blank_criteria") == [], "asking for the blank rows is deliberate"
+counting = {"Log": by_hand["Log"], "S": {"A1": '=COUNTIF(Log!A4:A13,"x")'}}
+assert issues_of(make(counting, {("S", "A1"): 5}), "blank_criteria") == []
+whole_column = {"Log": by_hand["Log"], "S": {"A1": '=SUMIF(Log!A:A,"x",Log!B:B)'}}
+(wc,) = issues_of(make(whole_column, {("S", "A1"): 25}), "blank_criteria")
+assert wc.impact == 25 and "5 rows" in wc.title.replace("skips ", "skips ")
+print("PASSED")
+
+print("TEST: SUMIFS - each criteria column is checked against the sum column")
+sheets = {"Log": {"A3": "Date", "B3": "Cat", "C3": "Amt", **{f"A{4 + i}": (None if i % 2 else datetime(2026, 6, 1)) for i in range(10)},
+                  **{f"B{4 + i}": "x" for i in range(10)}, **{f"C{4 + i}": 10 for i in range(10)}},
+          "S": {"A1": '=SUMIFS(Log!C4:C13,Log!B4:B13,"x",Log!A4:A13,DATE(2026,6,1))'}}
+assert issues_of(make(sheets, {("S", "A1"): 50}), "blank_criteria") == [], "DATE() is not calculated here, so nothing is claimed"
+sheets["S"]["A1"] = '=SUMIFS(Log!C4:C13,Log!B4:B13,"x",Log!A4:A13,">0")'
+(multi,) = issues_of(make(sheets, {("S", "A1"): 50}), "blank_criteria")
+assert multi.impact == 50 and "5 rows" in multi.title and "Log!A4:A13" in multi.title
 print("PASSED")

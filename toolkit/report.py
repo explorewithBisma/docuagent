@@ -43,6 +43,7 @@ class Issue:
     impact: float = 0.0                 # money (or quantity) affected, for ordering; 0 when unknown
     fix: str = ""                       # what the user could do
     action: str = None                  # optional one-click fix the page can offer
+    facts: dict = field(default_factory=dict)          # machine-readable details a later step can use (e.g. to join related findings)
 
     @property
     def where(self) -> str:

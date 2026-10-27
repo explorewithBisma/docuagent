@@ -52,7 +52,10 @@ def truth() -> dict:
 PLANTED = [
     ("criteria_no_match", MONTHLY, "B5"),        # SUMIF criterion "🍔 Food" while the log says "Food/Grocery"
     ("cross_total", ACCOUNT, "B4"),              # total expenses TYPED as 11,755; the log adds up to less
-    ("cross_total", MONTHLY, "B8"),              # the categories add up to less than the log (because of the Food SUMIF)
+    ("cross_total", MONTHLY, "B8"),              # the categories add up to less than the log (because of the Food SUMIF) ...
+    ("cross_total", DASH, "B12"),                # ... and the Dashboard total just reads those figures: ONE finding, two cells
+    ("blank_criteria", DAILY, "B4"),             # the Daily Summary looks up dates; the log has a date only on the first row of each day
+    ("blank_criteria", MONTHLY, "B4"),           # the Monthly Summary looks up categories; some log rows have none
     ("cross_total", DAILY, "B34"),               # the daily totals add up to less than the log (a date on the first row only)
     ("formula_error", DAILY, "D15"),             # a #REF! left behind
     ("range_short", DAILY, "B34"),               # =SUM(B4:B30) while the table runs to row 33
@@ -161,6 +164,8 @@ def build_workbook(with_cached_values: bool = True) -> bytes:
         b.formula(dash, f"B{row}", f"'{MONTHLY}'!B{row - 4}", monthly_rows[row - 8][2])
         dash.cell(row=row, column=3, value=budget)
         b.formula(dash, f"D{row}", f"C{row}-B{row}", budget - monthly_rows[row - 8][2])
+    dash["A12"] = "🏁 GRAND TOTAL"                                          # reads the Monthly Summary figures: the same gap, a second place
+    b.formula(dash, "B12", "SUM(B8:B11)", round(sum(row[2] for row in monthly_rows), 2))
     chart = BarChart()
     chart.title = "Spent by category"
     chart.add_data(Reference(dash, min_col=2, min_row=7, max_row=11), titles_from_data=True)

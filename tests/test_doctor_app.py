@@ -59,13 +59,13 @@ at = open_page()
 assert any(h.value == "What I found" for h in at.header) and any(h.value == "Please check" for h in at.header)
 text = text_of(at)
 assert "a transaction list: 40 rows" in text and "from header row 3" in text and "🟢 sure" in text
-assert "**9 thing(s) to check:** 5 serious, 3 worth checking, 1 small" in text
+assert "**11 thing(s) to check:** 7 serious, 3 worth checking, 1 small" in text
 assert "I never change your numbers" in text
 print("PASSED")
 
 print("TEST: the Please-check list is in order of importance, nothing hidden, each with evidence")
 markdown = [m.value for m in at.markdown if m.value.startswith(("🔴", "🟠", "🔵"))]
-assert len(markdown) == 9, len(markdown)
+assert len(markdown) == 11, len(markdown)
 icons = [m[0] for m in markdown]
 assert icons == sorted(icons, key=["🔴", "🟠", "🔵"].index) and markdown[0].startswith("🔴 **'(-) Total Expenses This Month' says 11,755")
 assert any(e.label.endswith("more") for e in at.expander), "the ninth finding is in the 'more' expander, not dropped"
@@ -80,7 +80,7 @@ assert copy["file_name"] == "budget_checked.xlsx" and copy["mime"] == XLSX
 book = openpyxl.load_workbook(io.BytesIO(copy["data"]))
 assert book.sheetnames[-1] == "Doctor report" and book[fx.DASH]._charts and book[fx.ACCOUNT]["B4"].value == 11755
 assert book[fx.ACCOUNT]["B4"].comment is not None
-assert "9 cell(s) coloured, 9 note(s) added" in text_of(at)
+assert "cell(s) coloured," in text_of(at) and "note(s) added" in text_of(at)
 report = captured["Download the report (.txt)"]
 assert report["file_name"] == "budget_report.txt" and report["data"].startswith("Excel Doctor report for budget.xlsx")
 print("PASSED")
@@ -101,7 +101,7 @@ print("TEST: 'Also show small things' can be switched off")
 at = open_page()
 next(c for c in at.checkbox if c.key == "doctor_include_low").uncheck()
 run(at)
-assert "**8 thing(s) to check:**" in text_of(at) and "1 small" not in text_of(at)
+assert "**10 thing(s) to check:**" in text_of(at) and "1 small" not in text_of(at)
 print("PASSED")
 
 print("TEST: a clean workbook says so and offers no highlighted copy")

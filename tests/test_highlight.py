@@ -25,7 +25,7 @@ RESULT = make_highlighted(ORIGINAL, REPORT)
 before, after = zipfile.ZipFile(io.BytesIO(ORIGINAL)), zipfile.ZipFile(io.BytesIO(RESULT.data))
 
 print("TEST: every finding's cell is coloured and has a note; nothing was skipped")
-assert RESULT.highlighted == 9 and RESULT.notes == 9 and RESULT.skipped == []
+assert RESULT.highlighted == RESULT.notes == len({loc for i in REPORT.issues for loc in i.locations}) > 30 and RESULT.skipped == []
 copy = load_workbook(io.BytesIO(RESULT.data))
 issues_at = {}
 for issue in REPORT.issues:
@@ -195,7 +195,7 @@ print("PASSED")
 
 print("TEST: the text report - always available, in the order of the page")
 text = report_text(REPORT, "budget.xlsx")
-assert text.startswith("Excel Doctor report for budget.xlsx") and "WHAT I FOUND" in text and "PLEASE CHECK  (5 serious, 3 worth checking, 1 small)" in text
-assert text.index("1. [HIGH]") < text.index("9. [LOW]") and "never changes your numbers" in text
+assert text.startswith("Excel Doctor report for budget.xlsx") and "WHAT I FOUND" in text and "PLEASE CHECK  (7 serious, 3 worth checking, 1 small)" in text
+assert text.index("1. [HIGH]") < text.index("11. [LOW]") and "never changes your numbers" in text
 assert note_for(REPORT.issues[0]).startswith("[HIGH]") and "Suggestion:" in note_for(REPORT.issues[0])
 print("PASSED")

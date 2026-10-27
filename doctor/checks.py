@@ -441,7 +441,8 @@ def check_figures(ctx):
                     "Some spending is missing from this summary (for example because a category or date is written differently in the list).",
                     evidence=f"{sheet.name}!{total_cell.coord} = {money(number)};  {main.sheet} = {money(main.amount_total)}",
                     locations=[(sheet.name, total_cell.coord)], impact=abs(number - main.amount_total),
-                    fix="Check the formulas above the total, and the spelling of the categories / dates in the list."))
+                    fix="Check the formulas above the total, and the spelling of the categories / dates in the list.",
+                    facts={"value": number, "against": main.amount_total, "list": main.sheet}))
 
     # (c) the same label with different numbers on different sheets
     seen = defaultdict(list)
@@ -569,3 +570,82 @@ def check_small(ctx):
             ctx.add(Issue("hidden_data", "low", f"{len(hidden_cells)} cell(s) with data are in hidden rows or columns on '{sheet.name}'",
                           "Hidden data is still counted by formulas but nobody sees it.", locations=[(sheet.name, c.coord) for c in hidden_cells[:50]],
                           fix="Unhide the rows or columns and check them."))
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# 8. CRITERIA COLUMNS WITH BLANKS
+# ---------------------------------------------------------------------------------------------------------------
+BLANK_MIN_ROWS = 3           # fewer blank rows than this is a stray gap, not a pattern
+BLANK_MIN_SHARE = 0.10       # ... and so is a blank share under 10% of the rows that have an amount
+BLANK_HIGH_SHARE = 0.25      # a quarter of the money or more missing is serious
+
+
+def _is_blank(value) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
+def check_blank_criteria(ctx):
+    """A SUMIF/SUMIFS that looks things up in a column which is blank on many rows that DO have an amount: those rows can never be
+    matched by any criterion (typically dates written only on the first row of each day, or uncategorised rows)."""
+    groups = {}
+    for sheet in ctx.wb.sheets.values():
+        for cell in sheet.formula_cells():
+            tree = ctx.tree(cell)
+            if tree is None:
+                continue
+            for call in fm.calls(tree):
+                if call.name not in ("SUMIF", "SUMIFS"):
+                    continue
+                if call.name == "SUMIF":
+                    if len(call.args) != 3:
+                        continue
+                    pairs, sum_node = [(call.args[0], call.args[1])], call.args[2]
+                else:
+                    sum_node = call.args[0] if call.args else None
+                    pairs = [(call.args[i], call.args[i + 1]) for i in range(1, len(call.args) - 1, 2)]
+                if not isinstance(sum_node, fm.Ref):
+                    continue
+                for range_node, criterion_node in pairs:
+                    if not isinstance(range_node, fm.Ref) or range_node.kind not in ("range", "col") or range_node.c1 != range_node.c2:
+                        continue
+                    try:
+                        values = ctx.ev.range_values(range_node, sheet.name)
+                        sums = ctx.ev._shifted(sum_node, sheet.name, values) if call.name == "SUMIF" else ctx.ev.range_values(sum_node, sheet.name)
+                        criterion = ctx.ev.criterion_value(criterion_node, sheet.name)
+                    except (Unsupported, EvalError):
+                        continue
+                    if make_matcher(criterion)(None) or len(sums) != len(values):
+                        continue                                    # a formula that asks for blanks on purpose
+                    key = (range_node.sheet or sheet.name, range_node.text, sum_node.text)
+                    group = groups.setdefault(key, {"cells": [], "values": values, "sums": sums, "fn": call.name,
+                                                    "range": range_node, "sheet": range_node.sheet or sheet.name})
+                    group["cells"].append(cell)
+    for group in groups.values():
+        values, sums = group["values"], group["sums"]
+        with_amount = [(i, as_number(s[0])) for i, s in enumerate(sums) if s and is_number(s[0]) and as_number(s[0]) != 0]
+        missed = [(i, a) for i, a in with_amount if _is_blank(values[i][0])]
+        total = sum(a for _, a in with_amount)
+        if len(missed) < BLANK_MIN_ROWS or not with_amount or len(missed) / len(with_amount) < BLANK_MIN_SHARE:
+            continue
+        lost = sum(a for _, a in missed)
+        filled = [v[0] for v in values if not _is_blank(v[0])]
+        dates = filled and all(hasattr(v, "year") for v in filled)
+        first = group["range"].r1
+        rows_text = f"{len(missed)} of the {len(with_amount)} rows that have an amount"
+        column = f"{group['sheet']}!{group['range'].text.split(chr(33))[-1]}"
+        cells = group["cells"]
+        if dates:
+            why = ("The dates are written only on the first row of each day, so the other rows have no date and no day can ever match them. ")
+            fix = f"Fill the dates down in {column} (every row repeats the date above it)."
+            what = "have no date"
+        else:
+            why = "A row with nothing in that column is never matched by any criterion. "
+            fix = f"Give those rows a value in {column} (or add a catch-all row such as 'Other')."
+            what = "are blank there"
+        ctx.add(Issue(
+            "blank_criteria", "high" if total and lost / total >= BLANK_HIGH_SHARE else "medium",
+            f"{len(cells)} formula{'s' if len(cells) > 1 else ''} skip{'' if len(cells) > 1 else 's'} {len(missed)} rows because {column} is blank on them",
+            f"{rows_text} ({money(lost)} of {money(total)}) {what} in {column}. {why}Those rows are missing from every figure these {group['fn']} "
+            "formulas give.",
+            evidence=f"{cells[0].coord}: ={cells[0].formula}   (blank rows: {', '.join(str(first + i) for i, _ in missed[:8])}{' ...' if len(missed) > 8 else ''})",
+            locations=[(c.sheet, c.coord) for c in cells], impact=lost, fix=fix, facts={"rows": len(missed), "money": lost}))

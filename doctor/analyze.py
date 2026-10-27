@@ -8,7 +8,7 @@ order of importance, and notes about what could not be checked). The workbook is
 from collections import Counter
 
 from budget import names
-from doctor import checks
+from doctor import checks, rootcause
 from doctor.context import Context, Options, find_tx_tables, money
 from doctor.evaluator import SUPPORTED_FUNCTIONS
 from toolkit.ranking import rank
@@ -62,12 +62,14 @@ def analyze(file_bytes: bytes, options: Options = None):
     # the order matters: findings on a cell stop the later, more general checks from repeating it
     checks.check_errors(ctx)
     checks.check_criteria(ctx)
+    checks.check_blank_criteria(ctx)
     checks.check_figures(ctx)
     checks.check_typed_totals(ctx)
     checks.check_ranges(ctx)
     checks.check_typed(ctx)
     checks.check_stale(ctx)
     checks.check_small(ctx)
+    rootcause.merge_same_root_cause(ctx)            # last: joins findings that share one cause
 
     issues = ctx.issues if ctx.options.include_low else [i for i in ctx.issues if i.severity != "low"]
     tables = {t.sheet: t for t in ctx.tx_tables}
