@@ -30,6 +30,9 @@ from toolkit.sheets import ERROR_VALUES, a1
 
 SUMMING = ("SUM", "SUMIF", "SUMIFS", "COUNTIF", "COUNTIFS", "AVERAGE", "MAX", "MIN", "COUNT")
 EXPENSE_WORDS = {"expense", "expenses", "spent", "spending"}
+MEASURE_WORDS = {"total", "totals", "sum", "subtotal", "balance", "income", "expense", "expenses", "spent", "spending", "savings",
+                 "saved", "net", "opening", "closing", "paid", "payments"}
+NOT_A_MEASURE = {"budget", "limit", "target", "category"}
 NOT_AN_EXPENSE_TOTAL = {"budget", "income", "loan", "loans", "payment", "payments", "balance", "savings", "remaining", "left", "over",
                         "average", "avg", "daily", "category", "target", "limit"}
 ERROR_EXPLANATIONS = {
@@ -264,6 +267,10 @@ def check_ranges(ctx):
         _check_double_count(ctx, sheet)
 
 
+def _is_aggregate(cell) -> bool:
+    return cell.formula.upper().startswith(tuple(f + "(" for f in SUMMING))
+
+
 def _check_siblings(ctx, sheet):
     """In a column of filled-down formulas, the one that does something different from the rest."""
     by_column = defaultdict(list)
@@ -280,8 +287,11 @@ def _check_siblings(ctx, sheet):
                 patterns = [fm.to_relative(c.formula, c.row, c.col) for c in run]
                 common, count = Counter(patterns).most_common(1)[0]
                 if count / len(run) >= 0.7 and count < len(run):
-                    odd = [c for c, p in zip(run, patterns) if p != common and not ctx.is_reported(c)
-                           and not row_has_total_label(sheet, c.row) and not c.formula.upper().startswith(tuple(f + "(" for f in SUMMING))]
+                    odd = [c for index, (c, p) in enumerate(zip(run, patterns))
+                           if p != common and not ctx.is_reported(c) and not row_has_total_label(sheet, c.row)
+                           and not _is_aggregate(c)
+                           and 0 < index < len(run) - 1                       # a first/last row is a header or summary row, not a slip
+                           and not any(row_has_total_label(sheet, r.row) or _is_aggregate(r) for r in run[:index])]  # nor is anything below a total
                     if 0 < len(odd) <= 2:
                         ctx.add(Issue(
                             "inconsistent_formula", "medium", f"{sheet.name}!{odd[0].coord} does something different from the formulas around it",
@@ -446,11 +456,17 @@ def check_figures(ctx):
 
     # (c) the same label with different numbers on different sheets
     seen = defaultdict(list)
+    list_rows = {t.sheet: set(t.rows) for t in ctx.tx_tables}
     for sheet in ctx.wb.sheets.values():
         for text, label_cell, value_cell, number in labelled_figures(ctx, sheet):
             canon = names.canonical(text)
-            if len(canon.split()) >= 2:
-                seen[canon].append((sheet.name, text, value_cell, number))
+            tokens = set(canon.split())
+            # only labels that name a MEASURE (total expenses, closing balance ...) can be "the same figure" on two sheets;
+            # a category name (Food, Family / Remittance) is shared by a spending figure and a budget without being one figure,
+            # and a row of the transaction list itself is an item, not a summary
+            if len(tokens) < 2 or not (tokens & MEASURE_WORDS) or tokens & NOT_A_MEASURE or value_cell.row in list_rows.get(sheet.name, ()):
+                continue
+            seen[canon].append((sheet.name, text, value_cell, number))
     for canon, entries in seen.items():
         sheets_involved = {e[0] for e in entries}
         values = [e[3] for e in entries]

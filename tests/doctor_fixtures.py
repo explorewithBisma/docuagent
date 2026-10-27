@@ -10,6 +10,7 @@ import io
 import re
 import zipfile
 from datetime import datetime
+from xml.sax.saxutils import escape
 
 from openpyxl import Workbook
 from openpyxl.chart import BarChart, Reference
@@ -238,7 +239,7 @@ def inject_stored_results(xlsx_bytes: bytes, cached: dict) -> bytes:
                     pattern = re.compile(rf'<c r="{coord}"([^>]*)>(<f>.*?</f>)<v\s*/></c>')
                     if isinstance(stored, str):
                         kind = "e" if stored.startswith("#") else "str"
-                        replacement = rf'<c r="{coord}"\1 t="{kind}">\2<v>{stored}</v></c>'
+                        replacement = rf'<c r="{coord}"\1 t="{kind}">\2<v>{escape(stored)}</v></c>'
                     else:
                         replacement = rf'<c r="{coord}"\1>\2<v>{stored!r}</v></c>'
                     text, count = pattern.subn(replacement, text)

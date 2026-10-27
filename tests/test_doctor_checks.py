@@ -395,3 +395,42 @@ sheets["S"]["A1"] = '=SUMIFS(Log!C4:C13,Log!B4:B13,"x",Log!A4:A13,">0")'
 (multi,) = issues_of(make(sheets, {("S", "A1"): 50}), "blank_criteria")
 assert multi.impact == 50 and "5 rows" in multi.title and "Log!A4:A13" in multi.title
 print("PASSED")
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# False positives seen on the Doctor's own Budget-mode output
+# ---------------------------------------------------------------------------------------------------------------------
+print("TEST: a category name shared by a spending figure and a budget is not 'the same figure'; a measure label still is")
+sheets = {"Spending": {"A1": "Family / Remittance", "B1": 155}, "Settings": {"A1": "Family / Remittance", "B1": 0},
+          "Totals A": {"A1": "Total expenses this month", "B1": 10}, "Totals B": {"A1": "Total expenses this month", "B1": 12}}
+conflicts = issues_of(make(sheets), "label_conflict")
+assert [i.title for i in conflicts] == ["'Total expenses this month' has different numbers on different sheets"]
+assert issues_of(make({"A": {"A1": "Food budget total", "B1": 10}, "B": {"A1": "Food budget total", "B1": 99}}), "label_conflict") == [], "budgets are settings"
+print("PASSED")
+
+print("TEST: a row of the transaction list is never compared with a figure on another sheet")
+log = {"A3": "Date", "B3": "Description", "C3": "Amount (AED)", **{f"A{4 + i}": datetime(2026, 6, 1 + i) for i in range(6)},
+       **{f"B{4 + i}": f"item {i}" for i in range(6)}, **{f"C{4 + i}": 10 for i in range(6)}}
+log["B4"] = "Net spent today"                                      # an item whose text looks like a measure
+assert issues_of(make({"Log": log, "Other": {"A1": "Net spent today", "B1": 999}}), "label_conflict") == []
+print("PASSED")
+
+print("TEST: a summary row after the end of a table, or at its edge, is not 'different from the formulas around it'; a slip in the middle is")
+rows = {f"A{r}": r for r in range(1, 9)}
+rows.update({f"B{r}": f"=A{r}*2" for r in range(1, 9)})
+rows["B9"], rows["A9"] = "=B1-B8", "Left over"                       # a separate summary row below the table, with its own label
+cached = {("S", f"B{r}"): r * 2 for r in range(1, 9)}
+cached[("S", "B9")] = -14
+assert issues_of(make({"S": rows}, cached), "inconsistent_formula") == []
+rows["B9"] = "=A9*2"
+assert issues_of(make({"S": rows}, {**cached, ("S", "B9"): 18}), "inconsistent_formula") == [], "the last cell of a run is an edge"
+rows["B9"], rows["B4"] = "=A9*2", "=A4*3"
+(slip,) = issues_of(make({"S": rows}, {**cached, ("S", "B9"): 18, ("S", "B4"): 12}), "inconsistent_formula")
+assert slip.locations == [("S", "B4")], "a formula in the middle that differs is still found"
+after_total = {f"A{r}": r for r in range(1, 9)}
+after_total.update({f"B{r}": f"=A{r}*2" for r in range(1, 6)})
+after_total.update({"B6": "=SUM(B1:B5)", "A6": "Total", "B7": "=B6/2", "B8": "=B6*3", "B9": "=B6+1"})
+cached2 = {("S", f"B{r}"): r * 2 for r in range(1, 6)}
+cached2.update({("S", "B6"): 30, ("S", "B7"): 15, ("S", "B8"): 90, ("S", "B9"): 31})
+assert issues_of(make({"S": after_total}, cached2), "inconsistent_formula") == [], "formulas below a total are their own summary rows"
+print("PASSED")
