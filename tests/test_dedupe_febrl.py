@@ -74,8 +74,8 @@ def run(name, loader):
 
 # Regression floors: slightly BELOW the numbers last measured (the exact numbers are printed above). A change that lowers recall or
 # precision below them fails; when the finder genuinely improves, raise the floors to just below the new numbers.
-FLOORS = {"febrl1": {"High": (0.99, 0.66), "High+Maybe": (0.99, 0.66)},
-          "febrl3": {"High": (0.99, 0.54), "High+Maybe": (0.99, 0.54)}}
+FLOORS = {"febrl1": {"High": (0.99, 0.66), "High+Maybe": (0.99, 0.67)},
+          "febrl3": {"High": (0.99, 0.54), "High+Maybe": (0.99, 0.545)}}
 
 print("TEST: FEBRL benchmark - precision / recall for High and High+Maybe, held to regression floors")
 for name, loader in (("febrl1", rl_datasets.load_febrl1), ("febrl3", rl_datasets.load_febrl3)):

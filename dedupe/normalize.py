@@ -70,6 +70,12 @@ def typo_limit(length: int) -> int:
     return 0 if length <= 3 else 1 if length <= 7 else 2
 
 
+def lenient_limit(length: int) -> int:
+    """How many letter edits a LONG name word may have and still be called 'similar' (roughly one per three letters). Only ever used to
+    create a Maybe next to other evidence."""
+    return 0 if length <= 3 else 1 if length <= 5 else 2 if length <= 8 else 3
+
+
 def skeleton(token: str) -> str:
     """A spelling-tolerant key: the first letter, then the consonants with repeats collapsed (muhammad, mohammad, mohamed -> mhmd)."""
     if not token:
@@ -132,7 +138,7 @@ def name_key(value, variants: dict) -> NameKey:
     return NameKey(" ".join(raw_tokens), [variants.get(t, t) for t in raw_tokens], raw_tokens)
 
 
-def _token_pair(a: str, b: str):
+def _token_pair(a: str, b: str, lenient: bool = False):
     """How two name words relate: 'same', 'initial', 'typo' or None."""
     if a == b:
         return "same", ""
@@ -140,7 +146,9 @@ def _token_pair(a: str, b: str):
         if a[0] == b[0]:
             return "initial", f"'{a}' for '{b}'" if len(a) == 1 else f"'{b}' for '{a}'"
         return None, ""
-    if min(len(a), len(b)) >= 4 and osa_distance(a, b, typo_limit(min(len(a), len(b)))) <= typo_limit(min(len(a), len(b))):
+    shortest = min(len(a), len(b))
+    limit = lenient_limit(shortest) if lenient else typo_limit(shortest)
+    if shortest >= 4 and osa_distance(a, b, limit) <= limit:
         return "typo", f"'{a}' / '{b}'"
     return None, ""
 
@@ -159,26 +167,32 @@ def compare_names(a: NameKey, b: NameKey) -> tuple:
     verdict = _compare_aligned(a.tokens, b.tokens)
     if verdict[0] == "different" and (a.raw_tokens != a.tokens or b.raw_tokens != b.tokens):
         verdict = _compare_aligned(a.raw_tokens, b.raw_tokens)        # a typo in a word that a spelling-variant group would have hidden
+    if verdict[0] == "different":                                     # last resort: several typos in long names -> 'similar' (Maybe only)
+        lenient = _compare_aligned(a.tokens, b.tokens, lenient=True)
+        if lenient[0] == "different" and (a.raw_tokens != a.tokens or b.raw_tokens != b.tokens):
+            lenient = _compare_aligned(a.raw_tokens, b.raw_tokens, lenient=True)
+        if lenient[0] != "different":
+            return "similar", lenient[1]
     return verdict
 
 
-def _compare_aligned(first: list, second: list) -> tuple:
+def _compare_aligned(first: list, second: list, lenient: bool = False) -> tuple:
     short, long = (first, second) if len(first) <= len(second) else (second, first)
     if len(short) == 1 and len(long) == 1:
-        relation, why = _token_pair(short[0], long[0])
+        relation, why = _token_pair(short[0], long[0], lenient)
         return ("almost", f"typo {why}") if relation == "typo" else ("different", "")
     if len(short) < 2 or len(long) - len(short) > 1:
         return "different", ""
     aligned = list(zip(short, long)) if len(short) == len(long) else [(short[0], long[0]), (short[-1], long[-1])]
     whys, odd = [], 0
     for x, y in aligned:
-        relation, why = _token_pair(x, y)
+        relation, why = _token_pair(x, y, lenient)
         if relation is None:
             return "different", ""
         if relation != "same":
             odd += 1
             whys.append(("initial " if relation == "initial" else "typo ") + why)
-    if odd > (1 if len(aligned) == 2 else 2):
+    if odd > (len(aligned) if lenient else 1 if len(aligned) == 2 else 2):
         return "different", ""
     if len(short) != len(long):
         whys.append("a middle name is missing")

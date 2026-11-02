@@ -70,7 +70,7 @@ def hard_conflict(ev: dict) -> bool:
     identifier under a different name."""
     verdict = {role: v[0] for role, v in ev.items()}
     different = [r for r in STRONG if verdict.get(r) == "different"]
-    return verdict.get("id") == "different" or len(different) >= 2 or (len(different) == 1 and verdict.get("name") == "different")
+    return verdict.get("id") == "different" or len(different) >= 2 or (len(different) == 1 and verdict.get("name") in ("different", "similar"))
 
 
 def describe(ev: dict) -> str:
@@ -83,6 +83,8 @@ def describe(ev: dict) -> str:
             parts.append("name same")
         elif name[0] == "almost":
             parts.append(f"name almost same ({name[1]})" if name[1] else "name almost same")
+        elif name[0] == "similar":
+            parts.append(f"name similar ({name[1]})" if name[1] else "name similar")
         else:
             parts.append("name different")
     for role in STRONG + SUPPORT:
@@ -112,7 +114,7 @@ def _score(ev: dict) -> int:
     strong_exact = sum(1 for r in STRONG if ev.get(r, ("",))[0] == "exact")
     points += 40 * min(strong_exact, 2)
     name = ev.get("name", ("blank",))[0]
-    points += {"exact": 30, "almost": 20}.get(name, 0)
+    points += {"exact": 30, "almost": 20, "similar": 10}.get(name, 0)
     for role in SUPPORT:
         points += {"exact": 8, "almost": 4}.get(ev.get(role, ("",))[0], 0)
     points += 25 if ev.get("dob", ("",))[0] == "exact" else 0
@@ -125,6 +127,8 @@ def classify(ev: dict, strictness: str = "normal"):
     The date of birth never changes a High; it can add a Maybe, and a different one removes a Maybe that rested on the name alone."""
     level = _classify_core(ev, strictness)
     verdict = {role: v[0] for role, v in ev.items()}
+    if verdict.get("name") == "similar":
+        return _classify_similar(ev, verdict, strictness)
     if verdict.get("dob") == "different" and level == "maybe" and not any(verdict.get(r) == "exact" for r in STRONG + SUPPORT):
         return None                                                # same name but a different birthday: two people
     if level is not None or strictness == "strict" or verdict.get("dob") != "exact":
@@ -134,6 +138,20 @@ def classify(ev: dict, strictness: str = "normal"):
         return None
     name = verdict.get("name", "blank")
     if name in ("exact", "almost") or (name == "blank" and verdict.get("place") == "exact"):
+        return "maybe"
+    return None
+
+
+def _classify_similar(ev: dict, verdict: dict, strictness: str):
+    """A name with several typos (long names) is only ever a Maybe, and only next to other evidence."""
+    different_strong = [r for r in STRONG if verdict.get(r) == "different"]
+    if strictness == "strict" or verdict.get("id") == "different" or different_strong:
+        return None
+    exact_strong = [r for r in STRONG if verdict.get(r) == "exact"]
+    support_ok = [r for r in SUPPORT if verdict.get(r) in ("exact", "almost")]
+    if verdict.get("dob") == "different":
+        return None
+    if exact_strong or verdict.get("dob") == "exact" or len(support_ok) >= 2:
         return "maybe"
     return None
 
