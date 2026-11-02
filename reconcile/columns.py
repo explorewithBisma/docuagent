@@ -15,6 +15,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
 
+import numpy as np
 import pandas as pd
 
 from budget.importer import _to_date, parse_amount
@@ -69,7 +70,9 @@ def find_header(raw: pd.DataFrame) -> int:
 
 
 def table_from_raw(raw: pd.DataFrame):
-    """-> (DataFrame with the header row as column names, header row number). Blank rows/columns dropped; names made unique."""
+    """-> (DataFrame with the header row as column names, header row number). Blank rows/columns dropped; names made unique.
+    `table.attrs` remembers where everything came from: "source_rows" (the Excel row number of every table row) and "source_columns"
+    (the 0-based column of the uploaded sheet of every table column)."""
     header_row = find_header(raw)
     names, seen = [], {}
     for index, value in enumerate(raw.iloc[header_row] if len(raw) else []):
@@ -79,9 +82,27 @@ def table_from_raw(raw: pd.DataFrame):
     body = raw.iloc[header_row + 1:].copy()
     body.columns = names
     keep = [c for c in body.columns if body[c].map(lambda v: not is_blank(v)).any()]
+    source_columns = [names.index(c) for c in keep]
     body = body[keep]
     body = body[body.map(lambda v: not is_blank(v)).any(axis=1)]
-    return body.reset_index(drop=True), header_row
+    source_rows = [int(i) + 1 for i in body.index]                 # raw row i (0-based) is Excel row i + 1
+    body = body.reset_index(drop=True)
+    # Kept as immutable bytes: pandas deep-copies `attrs` on every .iloc / slice, and a copied list of 10,000 numbers makes every row read slow.
+    body.attrs["source_rows"] = np.asarray(source_rows, dtype=np.int64).tobytes()
+    body.attrs["source_columns"] = np.asarray(source_columns, dtype=np.int64).tobytes()
+    return body, header_row
+
+
+def source_rows(table: pd.DataFrame):
+    """The Excel row number of every row of a table made by table_from_raw (None for a table made some other way)."""
+    packed = table.attrs.get("source_rows")
+    return np.frombuffer(packed, dtype=np.int64).tolist() if packed is not None else None
+
+
+def source_columns(table: pd.DataFrame):
+    """The 0-based column of the uploaded sheet of every column of the table (None for a table made some other way)."""
+    packed = table.attrs.get("source_columns")
+    return np.frombuffer(packed, dtype=np.int64).tolist() if packed is not None else None
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -168,6 +189,21 @@ class Mapping:
             findings.pop("debit", None)
             findings.pop("credit", None)
         return Mapping(findings, self.day_first, self.day_first_certain, list(self.notes))
+
+
+def detect_balance(df: pd.DataFrame, mapping: Mapping):
+    """The running-balance column of a bank statement (header says balance, the values are numbers, it is not the amount), or None."""
+    used = {mapping.column(r) for r in ROLES}
+    best = None
+    for column in df.columns:
+        tokens = _name_words(column)
+        values = _sample(df[column])
+        if column in used or not values or not tokens & BALANCE_WORDS or not _number_share(values) >= 0.8:
+            continue
+        score = (2 if "balance" in tokens else 0) + (1 if tokens & {"running", "closing", "available"} else 0) - (1 if "opening" in tokens else 0)
+        if best is None or score > best[0]:
+            best = (score, column)
+    return best[1] if best else None
 
 
 def detect_mapping(df: pd.DataFrame, default_day_first: bool = True) -> Mapping:

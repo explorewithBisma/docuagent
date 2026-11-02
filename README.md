@@ -565,3 +565,27 @@ Your files are never changed; the result is a new Excel workbook.
 Code: `reconcile/` (`columns` detection, `prepare`, `match`, `report`, `output`, `pipeline`, `views`) and `match_app.py` (the page). Tests:
 `tests/test_reconcile_*.py` (a synthetic bank statement and ledger with a ground-truth table, other header styles and sign conventions, the Excel
 result, a 10,000 x 10,000-row timing test and the page flow).
+
+## Bank statement to budget (inside "Build my budget")
+
+Upload a bank statement (CSV or Excel) in **Build my budget** and you get the same "What I found" card, "Please check" list and generated
+workbook as for any other upload - with these differences:
+
+- **It is recognised from its running balance.** A sheet with a date, a description, a money column (or a debit and a credit column) and a
+  balance column whose numbers add up row by row ("balance after = balance before + amount") is a statement. The columns are found by the same
+  detection as "Match two files"; title lines above the header and blank lines inside are fine. The balance column is never used as an amount.
+- **Signs and order come from the balance, not from guesses.** Newest-first statements are put in date order. If the balance proves that the file
+  writes money out as plus (or the debit and credit columns the other way round), the amounts are turned around - on a copy; your file is untouched.
+- **Credits become Income, debits become Expenses**, then the usual order applies: the file's own category, the keyword map, a typo-tolerant match,
+  and (only if you press the button) the AI for what is left. Type keywords still apply (salary, loan payment, saving ...).
+- **Card bills and transfers between your own accounts are not spending.** "Credit card payment", "Visa bill", "Mastercard bill", "Transfer to own account",
+  "Internal transfer" ... become **Card bill payment** (shown on their own Dashboard line, never in expenses or income). A transfer the app cannot place
+  ("IBFT transfer Ali Khan") stays an expense and is listed in Please check, so you decide.
+- **Opening balance and month.** The month is the most common month of the dates; the opening balance is the statement's balance *before the first
+  transaction of that month* (high confidence). The statement's last balance of the month is its closing balance.
+- **Sanity check.** The budget's closing balance must equal the statement's. Because the Dashboard does not count Card bill payment rows, those rows are
+  added back before comparing and the card says so ("includes -4,300.00 from 4 card bill payment / own-account transfer row(s)"). Any other difference is
+  shown on the card, in Please check and in the workbook's Import Notes - usually a missing, left-out or mistyped row.
+
+A statement without a balance column still works through the normal flow (credits = Income, debits = Expenses, keyword Types), only without the balance-based
+opening balance and closing-balance check. Code: `budget/statement.py`; tests: `tests/test_statement_budget.py`, `tests/test_statement_app.py`.

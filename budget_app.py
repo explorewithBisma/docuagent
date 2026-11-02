@@ -81,7 +81,7 @@ def adopt_analysis(analysis, message: str = None):
 if st.button("← Back to start", key="back_to_start"):
     st.switch_page("main.py")
 st.title("💰 Build my budget sheet")
-st.write("Upload a messy personal budget, last month's workbook from this app, or start blank. You get back a tidy Excel "
+st.write("Upload a bank statement, a messy personal budget, last month's workbook from this app, or start blank. You get back a tidy Excel "
          "workbook with dropdowns and a dashboard made only of formulas. Nothing is stored on the server.")
 
 if st.session_state.bd_message:
@@ -90,9 +90,9 @@ if st.session_state.bd_message:
 
 # --- 1. Your file -----------------------------------------------------------------------------
 st.header("1. Your file")
-uploaded = st.file_uploader("Your budget workbook (optional)", type=["xlsx", "xlsm", "csv"], key="bd_upload",
-                            help="A messy daily expense log, or a workbook this app made for an earlier month. "
-                                 "Leave empty to start blank.")
+uploaded = st.file_uploader("Your budget workbook or bank statement (optional)", type=["xlsx", "xlsm", "csv"], key="bd_upload",
+                            help="A bank statement (CSV or Excel: credits become Income, debits become Expenses), a messy daily expense log, "
+                                 "or a workbook this app made for an earlier month. Leave empty to start blank.")
 sid = f"{uploaded.name}-{uploaded.size}" if uploaded else "blank"
 if st.session_state.bd_sid != sid:
     for key in STATE_KEYS:
@@ -193,7 +193,11 @@ def render_card(current) -> bool:
             middle.markdown(f"{value} &nbsp; {BADGE[confidence]}")
             middle.caption(f"from {source}")
         difference = current.closing_difference
-        if difference:
+        if current.statement is not None and current.statement_check is not None:
+            check = current.statement_check
+            (st.caption if abs(check["difference"]) <= 0.01 else st.warning)(
+                ("✔ " if abs(check["difference"]) <= 0.01 else "") + autopilot.statement_reader.check_text(check, str(current.currency.value)))
+        elif difference:
             theirs, ours, gap = difference
             st.caption(f"Sanity check: your file's own estimated closing balance is {theirs:,.2f}; the one calculated here is "
                        f"{ours:,.2f} (difference {gap:,.2f}). For information only - the two can differ when the file counts "

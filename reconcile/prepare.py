@@ -14,6 +14,7 @@ import pandas as pd
 from budget.importer import parse_amount
 from dedupe.normalize import norm_id, norm_text
 from quality import is_blank
+from reconcile import columns as rc
 from reconcile.columns import parse_date
 
 NO_DATE = -1
@@ -60,7 +61,8 @@ def words(text: str) -> frozenset:
 
 def prepare_side(df: pd.DataFrame, mapping, header_row: int) -> Side:
     n = len(df)
-    side = Side(n=n, row_numbers=[header_row + int(i) + 2 for i in range(n)], dates=np.full(n, NO_DATE, dtype=np.int64),
+    source_rows = rc.source_rows(df)                          # set by table_from_raw: blank rows inside the data do not shift the numbers
+    side = Side(n=n, row_numbers=list(source_rows) if source_rows and len(source_rows) == n else [header_row + int(i) + 2 for i in range(n)], dates=np.full(n, NO_DATE, dtype=np.int64),
                 amounts=np.full(n, np.nan), refs=[""] * n, texts=[""] * n, tokens=[frozenset()] * n)
 
     date_column = mapping.column("date")

@@ -10,7 +10,7 @@ sys.path.insert(0, str(_Path(__file__).resolve().parent))
 import pandas as pd
 
 import reconcile_fixtures as fx
-from reconcile import columns as rc, match as rm
+from reconcile import columns as rc, match as rm, prepare as rp
 from reconcile.pipeline import Settings, analyze
 from reconcile_helpers import prepared, to_raw
 
@@ -150,4 +150,14 @@ assert [p.bucket for p in result.pairs] == ["close"]                            
 with_refs = plain_a.assign(Reference=["R1", "R2", "R3"])
 result, *_ = run(with_refs, plain_b.assign(Reference=["R1", "R2", "R3"]))
 assert len(result.bucket("exact")) == 3                                                           # a shared reference is still exact
+print("PASSED")
+
+print("TEST: blank lines inside a file do not shift the row numbers - every record keeps its number in the user's file")
+raw = pd.DataFrame([["Statement", None, None], ["Date", "Description", "Amount"], ["2026-01-01", "a", -1.0], [None, None, None], ["2026-01-02", "b", -2.0],
+                    [None, None, None], [None, None, None], ["2026-01-03", "c", -3.0]], dtype=object)
+table, header_row = rc.table_from_raw(raw)
+side = rp.prepare_side(table, rc.detect_mapping(table), header_row)
+assert header_row == 1 and side.row_numbers == [3, 5, 8], side.row_numbers
+import pickle
+assert rc.source_rows(pickle.loads(pickle.dumps(table))) == [3, 5, 8]                      # survives the page's cache
 print("PASSED")

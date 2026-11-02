@@ -20,8 +20,9 @@ from datetime import date
 
 import pandas as pd
 
-from budget import carryover, categorize, detect, importer, names, prepare
+from budget import carryover, categorize, detect, importer, names, prepare, statement as statement_reader
 from budget.model import (CARD_BILL, DEFAULT_PAYMENT_METHODS, EXPENSE, INCOME, LOAN_PAYMENT, TX_COLUMNS, BudgetConfig)
+from locales import LOCALES
 from quality import is_blank
 
 UNUSUAL_FACTOR = 10          # an expense this many times the median is listed as unusual
@@ -64,6 +65,7 @@ class Analysis:
     unmatched: pd.DataFrame = None      # Description | Count | Total: expenses still without a category
     ai_assigned: int = 0
     ai_info: dict = None                # {'provider', 'model'} once the AI step has run
+    statement: object = None            # statement.StatementInfo when the upload is a bank statement (running balance found), else None
 
     @property
     def config(self) -> BudgetConfig:
@@ -79,9 +81,19 @@ class Analysis:
     @property
     def closing_difference(self):
         """(file's own estimated closing, ours, our - theirs) or None when the file has no such figure."""
+        if self.statement is not None:
+            result = self.statement_check
+            return None if result is None else (result["theirs"], result["ours"], result["difference"])
         if self.own_closing is None:
             return None
         return self.own_closing.value, self.closing_balance, self.closing_balance - self.own_closing.value
+
+    @property
+    def statement_check(self):
+        """For a bank statement: the closing-balance check (statement.check) for the month and rows as they are now, else None."""
+        if self.statement is None:
+            return None
+        return statement_reader.check(self.statement, self.rows, self.month.value, float(self.opening.value), self.closing_balance, CARD_BILL)
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +105,12 @@ def analyze(file_bytes: bytes, is_csv: bool = False, keyword_map: dict = None, l
     """Read the workbook and detect everything. Raises ValueError when no transaction log can be found."""
     keyword_map = keyword_map or categorize.default_keyword_map()
     raw_sheets = importer.read_raw_sheets(file_bytes, is_csv)
-    main, layout = importer.best_sheet(raw_sheets)
+    statement = None
+    found = statement_reader.detect(raw_sheets, LOCALES.get(locale_code, {}).get("day_first", True))
+    if found:                                     # a bank statement: columns, signs and order come from its running balance
+        statement, main, layout, raw_sheets = found
+    else:
+        main, layout = importer.best_sheet(raw_sheets)
     if main is None:
         raise ValueError("No transaction log was found (a sheet with a date or description column and an amount column).")
 
@@ -103,6 +120,9 @@ def analyze(file_bytes: bytes, is_csv: bool = False, keyword_map: dict = None, l
     month = detect.detect_month(first.rows, today)
     result = importer.import_transactions(raw_sheets[main], layout, keyword_map, locale, month.value)
     notes = list(result.notes)
+    if statement is not None:
+        statement = statement.with_dates(result.rows)
+        notes = list(statement.notes) + notes
 
     rows, merges = _merge_own_categories(result.rows, keyword_map)
     rows = _typo_categories(rows, keyword_map)
@@ -120,6 +140,9 @@ def analyze(file_bytes: bytes, is_csv: bool = False, keyword_map: dict = None, l
 
     opening = detect.detect_opening_balance(raw_sheets, main, month.value)
     own_closing = detect.detect_own_closing(raw_sheets, main, month.value)
+    if statement is not None:                     # the statement's own balance column beats a guess from labelled cells
+        opening = statement.opening(month.value) or opening
+        own_closing = statement.closing(month.value)
     budgets = detect.detect_budgets(raw_sheets, main)
     categories, budget_notes = _categories_with_budgets(keyword_map, rows, budgets)
     notes += budget_notes
@@ -129,7 +152,7 @@ def analyze(file_bytes: bytes, is_csv: bool = False, keyword_map: dict = None, l
     analysis = Analysis(main_sheet=main, layout=layout, raw_sheets=raw_sheets, rows=rows, dropped=result.dropped,
                         keyword_map=keyword_map, currency=currency, month=month, opening=opening, budgets=budgets,
                         income=income, payments=payments, own_closing=own_closing, categories=categories, merges=merges,
-                        locale=locale, import_result=result, notes=notes)
+                        locale=locale, import_result=result, notes=notes, statement=statement)
     return refresh(analysis)
 
 
@@ -229,6 +252,16 @@ def _please_check(analysis: Analysis) -> list:
         alt = "; ".join(f"{value:,.2f} ({source})" for value, source in analysis.opening.alternatives[:3])
         checks.append(CheckItem("opening", f"Opening balance {analysis.opening.value:,.2f} is {analysis.opening.confidence}-confidence: "
                                            f"{analysis.opening.source}." + (f" Other candidates: {alt}." if alt else "")))
+    if analysis.statement is not None:
+        result = analysis.statement_check
+        if result is not None and abs(result["difference"]) > 0.01:
+            checks.append(CheckItem("closing", statement_reader.check_text(result, cur), abs(result["difference"])))
+        guesses = statement_reader.transfer_rows(rows, CARD_BILL)
+        if len(guesses):
+            total = float(guesses["Amount"].sum())
+            checks.append(CheckItem("transfer", f"{len(guesses)} row(s), {_money(total, cur)}, look like bank transfers ({', '.join(sorted({str(d) for d in guesses['Description']})[:3])}). "
+                                                "If they move money between your own accounts, set their Type to Card bill payment so they are not counted as "
+                                                "spending or income.", total))
     if analysis.currency.confidence == "low":
         checks.append(CheckItem("currency", f"Currency '{analysis.currency.value}' is a guess ({analysis.currency.source})."))
     if analysis.month.confidence != "high":
@@ -269,7 +302,7 @@ def _please_check(analysis: Analysis) -> list:
     if len(undated):
         checks.append(CheckItem("date", f"{len(undated)} row(s) have no usable date and are ignored by the Dashboard."))
 
-    order = {"ai_low": -1, "payments": 0, "opening": 1, "currency": 2, "month": 3, "budget": 4, "type": 5, "unusual": 6, "date": 7, "category": 8}
+    order = {"ai_low": -1, "payments": 0, "opening": 1, "closing": 1.5, "transfer": 1.6, "currency": 2, "month": 3, "budget": 4, "type": 5, "unusual": 6, "date": 7, "category": 8}
     return sorted(checks, key=lambda c: (order.get(c.kind, 9), -(c.amount or 0)))
 
 
@@ -345,7 +378,10 @@ def summary_lines(analysis: Analysis) -> list:
     rows = analysis.rows
     expenses = rows[rows["Type"] == EXPENSE]
     income = rows[rows["Type"] == INCOME]
-    lines = [
+    lines = []
+    if analysis.statement is not None:
+        lines.append(("Bank statement", analysis.statement.describe(), analysis.statement.source(), analysis.statement.confidence))
+    lines += [
         ("Currency", cur, analysis.currency.source, analysis.currency.confidence),
         ("Month", f"{analysis.month.value:%B %Y}", analysis.month.source, analysis.month.confidence),
         ("Opening balance", _money(float(analysis.opening.value), cur), analysis.opening.source, analysis.opening.confidence),
@@ -388,7 +424,9 @@ def import_info(analysis: Analysis, rows: pd.DataFrame) -> importer.ImportResult
         notes.append(f"{analysis.ai_assigned} categories were suggested by AI ({analysis.ai_info.get('provider')}, "
                      f"{analysis.ai_info.get('model')}); only the description texts were sent. They are marked 'AI suggested'.")
     difference = analysis.closing_difference
-    if difference:
+    if analysis.statement is not None and analysis.statement_check is not None:
+        notes.append(statement_reader.check_text(analysis.statement_check, str(analysis.currency.value)))
+    elif difference:
         notes.append(f"Sanity check: the file's own estimated closing balance is {difference[0]:,.2f}; ours is "
                      f"{difference[1]:,.2f} (difference {difference[2]:,.2f}).")
     return replace(analysis.import_result, rows=rows, stats=stats, notes=notes)
