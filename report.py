@@ -131,10 +131,14 @@ def _row_numbers(numbers: list, limit: int = 30) -> str:
 def _removed_lines(rows: list) -> list:
     """Report lines naming the rows that were removed (row numbers as in the uploaded file)."""
     lines = []
-    for kind, label in (("duplicate", "Removed duplicate rows"), ("empty", "Removed fully empty rows")):
+    for kind, label in (("duplicate", "Removed duplicate rows"), ("near_duplicate", "Removed near-duplicate rows (you confirmed them)"),
+                        ("empty", "Removed fully empty rows")):
         numbers = [row["original_row"] for row in rows if row["kind"] == kind]
         if numbers:
             lines.append(f"{label} (row numbers in your file): {_row_numbers(numbers)}")
+        if kind == "near_duplicate" and numbers:
+            filled = sum(row.get("filled", 0) for row in rows if row["kind"] == kind)
+            lines.append(f"  Blank cells filled in the kept rows from those near-duplicates: {filled}")
     if lines:
         lines.append("  Their full original content is on the 'Removed Rows' sheet of the Excel download.")
     return lines

@@ -23,7 +23,7 @@ def reset_on_new_file(file_id: str, keys) -> bool:
     return False
 
 
-def render_card(report, title: str = "What I found"):
+def render_card(report, title: str = "What I found", summary: str = None):
     """The 'What I found' card: one line per fact with its source and a confidence badge, then the notes."""
     st.header(title)
     with st.container(border=True):
@@ -36,6 +36,8 @@ def render_card(report, title: str = "What I found"):
         if report.issues:
             st.markdown(f"**{len(report.issues)} thing(s) to check:** " + ", ".join(
                 f"{counts[s]} {SEVERITY_WORD[s]}" for s in ("high", "medium", "low") if counts[s]))
+        elif summary:
+            st.info(summary)
         else:
             st.success("No problems were found.")
         for note in report.notes:

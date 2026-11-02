@@ -212,6 +212,7 @@ def clean_dataframe_with_steps(df: pd.DataFrame, steps: dict, options: dict = No
     if log is not None:
         original = df.copy()  # untouched copy: removed rows are reported with their ORIGINAL content
         log.original_columns = list(df.columns)
+        log.original_df = original
     stats = {
         "header_renames": [],
         "cells_trimmed": None,

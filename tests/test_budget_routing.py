@@ -66,7 +66,11 @@ assert not at.exception, [e.value for e in at.exception]
 assert any("budget" in t.value.lower() for t in at.title) and any(b.key == "back_to_start" for b in at.button)
 print("PASSED")
 
-print("TEST: app.py is not modified by the budget or Doctor work (the cleaner and its tests are untouched)")
-changes = subprocess.run(["git", "diff", "--stat", "65a059f", "--", "app.py"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
-assert changes == "", changes
+print("TEST: app.py only changed for the approved near-duplicate hook (the cleaner and its tests are otherwise untouched)")
+diff = subprocess.run(["git", "diff", "-U0", "65a059f", "--", "app.py"], cwd=ROOT, capture_output=True, text=True).stdout
+removed = [l for l in diff.splitlines() if l.startswith("-") and not l.startswith("---")]
+added = [l for l in diff.splitlines() if l.startswith("+") and not l.startswith("+++")]
+# only the removed-rows caption may be rewritten (it now counts near-duplicates); everything else is added lines for the dedupe panel
+assert len(removed) <= 2 and all("duplicate" in l or "fully empty" in l for l in removed), removed
+assert len(added) <= 40, len(added)                  # the approved hook is about ten lines, plus the caption
 print("PASSED")

@@ -676,7 +676,9 @@ if st.session_state.cleaned_sheets is not None:
                     table = removed_rows_dataframe(st.session_state.change_logs[sheet_name].original_columns, rows)
                     st.dataframe(table.head(CHANGES_ROWS), hide_index=True)
                     duplicates = sum(1 for row in rows if row["kind"] == "duplicate")
-                    st.caption(f"{duplicates:,} duplicate and {len(rows) - duplicates:,} fully empty rows removed"
+                    near = sum(1 for row in rows if row["kind"] == "near_duplicate")
+                    st.caption(f"{duplicates:,} duplicate, " + (f"{near:,} near-duplicate and " if near else "")
+                               + f"{len(rows) - duplicates - near:,} fully empty rows removed"
                                + (f" (showing the first {CHANGES_ROWS:,})" if len(rows) > CHANGES_ROWS else ""))
 
             st.subheader("Every changed cell")
