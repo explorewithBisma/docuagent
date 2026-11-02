@@ -1,0 +1,140 @@
+"""
+A SYNTHETIC customer list with planted near-duplicates and tricky look-alikes (invented people, phones and emails), for the
+near-duplicate tests. It comes with GROUND TRUTH: which rows are the same record, and which rows only look similar.
+
+  customers(n)  -> (DataFrame, Truth)
+
+Columns: Customer ID (a different value on every row - a row key), Full Name, Email, Mobile, National ID, Company, Address, City,
+Signup Date, Total Spend, Status. Dates, amounts and status DIFFER between a person's rows on purpose.
+"""
+
+import random
+from dataclasses import dataclass, field
+from datetime import date, timedelta
+
+import pandas as pd
+
+FIRSTS = ["Ali", "Sara", "Omar", "Layla", "Hassan", "Nour", "Zainab", "Karim", "Dina", "Faisal", "Hana", "Imran", "Jamal", "Maryam", "Nabil",
+          "Rania", "Salim", "Tariq", "Yasmin", "Zeeshan", "Adnan", "Bilal", "Hira", "Kamran", "Noman", "Saad", "Uzma", "Waqar", "Anwar", "Sana"]
+LASTS = ["Khan", "Raza", "Malik", "Sheikh", "Qureshi", "Ansari", "Butt", "Chaudhry", "Dar", "Farooq", "Gill", "Hashmi", "Iqbal", "Javed",
+         "Latif", "Mirza", "Naqvi", "Rehman", "Siddiqui", "Tahir", "Usmani", "Virk", "Yousaf", "Zaidi", "Abbasi", "Baig", "Cheema", "Durrani",
+         "Ejaz", "Fazal"]
+COMPANIES = ["Acme Trading LLC", "Blue Nile Foods", "City Pharmacy", "Delta Logistics", "Emirates Tech", "Falcon Stores", "Gulf Traders",
+             "Horizon Mart", "Indus Textiles", "Jade Interiors"]
+CITIES = ["Dubai", "Karachi", "Lahore", "Abu Dhabi", "Sharjah", "Islamabad", "Doha", "Riyadh", "Cairo", "Amman"]
+STREETS = ["Main Street", "Park Road", "Garden Avenue", "Station Road", "Lake Lane", "Hill Street", "Market Road", "Canal Avenue"]
+
+
+RESERVED = {("Ali", "Khan"), ("Sara", "Raza"), ("Omar", "Farooq"), ("Hassan", "Malik"), ("Layla", "Ansari"), ("Karim", "Dar"), ("Rania", "Javed"),
+            ("Imran", "Latif"), ("Nabil", "Chaudhry"), ("Tariq", "Mirza"), ("Bilal", "Tahir"), ("Saad", "Butt"), ("Hira", "Naqvi"),
+            ("Sana", "Chaudhry"), ("Zeeshan", "Chaudhry")}
+
+
+@dataclass
+class Truth:
+    groups: list = field(default_factory=list)        # [{"rows": [positions], "kind": str, "level": "high" | "maybe"}]
+    lookalikes: list = field(default_factory=list)    # [{"rows": [positions], "kind": str}]: must NEVER share a group
+
+    def pairs(self, level=None) -> set:
+        out = set()
+        for group in self.groups:
+            if level is None or group["level"] == level:
+                rows = sorted(group["rows"])
+                out |= {(a, b) for i, a in enumerate(rows) for b in rows[i + 1:]}
+        return out
+
+    def lookalike_pairs(self) -> set:
+        out = set()
+        for group in self.lookalikes:
+            rows = sorted(group["rows"])
+            out |= {(a, b) for i, a in enumerate(rows) for b in rows[i + 1:]}
+        return out
+
+
+def _phone(rng: random.Random, taken: set) -> str:
+    while True:
+        number = f"03{rng.randint(0, 4)}{rng.randint(0, 9)}{rng.randint(1000000, 9999999)}"
+        if number not in taken:
+            taken.add(number)
+            return number
+
+
+def customers(n: int = 300, seed: int = 7, plants: int = 1):
+    """n base customers (+ planted duplicates and look-alikes, `plants` times the standard set). Returns (DataFrame, Truth)."""
+    rng = random.Random(seed)
+    phones, ids, emails = set(), set(), set()
+
+    def person(first, last, key):
+        email = f"{first}.{last}.{key}@{rng.choice(['gmail.com', 'outlook.com', 'work.ae', 'mail.pk'])}".lower()
+        emails.add(email)
+        national = f"{rng.randint(10000, 99999)}{rng.randint(1000000, 9999999)}{rng.randint(1, 9)}"
+        ids.add(national)
+        return {"Customer ID": None, "Full Name": f"{first} {last}", "Email": email, "Mobile": _phone(rng, phones), "National ID": national,
+                "Company": rng.choice(COMPANIES), "Address": f"{rng.randint(1, 99)} {rng.choice(STREETS)}", "City": rng.choice(CITIES),
+                "Signup Date": date(2023, 1, 1) + timedelta(days=rng.randint(0, 900)), "Total Spend": round(rng.uniform(20, 5000), 2),
+                "Status": rng.choice(["Active", "Active", "Active", "Dormant", "VIP"])}
+
+    rows = []
+    for i in range(n):
+        while True:                                                    # random people never share a name with a planted one
+            first, last = rng.choice(FIRSTS), rng.choice(LASTS)
+            if (first, last) not in RESERVED:
+                break
+        rows.append(person(first, last, i))
+    truth = Truth()
+
+    def add(base_position, **changes):
+        """A new row that repeats the person at `base_position` with some fields changed; dates/amounts/status differ legitimately."""
+        row = dict(rows[base_position])
+        row.update({"Signup Date": row["Signup Date"] + timedelta(days=rng.randint(1, 200)), "Total Spend": round(rng.uniform(20, 5000), 2),
+                    "Status": rng.choice(["Active", "Dormant"])})
+        row.update(changes)
+        rows.append(row)
+        return len(rows) - 1
+
+    def special(first, last):
+        rows.append(person(first, last, len(rows)))
+        return len(rows) - 1
+
+    for _ in range(plants):
+        # --- true duplicates -----------------------------------------------------------------------------------------
+        b = special("Ali", "Khan");        d = add(b, **{"Full Name": "ali  khan."});                                     truth.groups.append({"rows": [b, d], "kind": "case_space_punct", "level": "high"})
+        b = special("Sara", "Raza");       d = add(b, Mobile=f"+92 {rows[b]['Mobile'][1:4]} {rows[b]['Mobile'][4:]}", Email=None)
+        truth.groups.append({"rows": [b, d], "kind": "phone_format", "level": "high"})
+        b = special("Omar", "Farooq");     d = add(b, Email=rows[b]["Email"].upper(), Mobile=None);                       truth.groups.append({"rows": [b, d], "kind": "email_case", "level": "high"})
+        b = special("Hassan", "Malik");    d = add(b, **{"Full Name": "Hassan Mailk"});                                   truth.groups.append({"rows": [b, d], "kind": "typo", "level": "high"})
+        b = special("Muhammad", "Siddiqui"); d = add(b, **{"Full Name": "Mohammad Siddiqui"});                            truth.groups.append({"rows": [b, d], "kind": "variant", "level": "high"})
+        b = special("Mohamed", "Qureshi"); d = add(b, **{"Full Name": "M. Qureshi"}, Mobile=None);                        truth.groups.append({"rows": [b, d], "kind": "initial", "level": "high"})
+        b = special("Layla", "Ansari");    d = add(b, **{"Full Name": "Ansari, Layla"}, Email=None);                      truth.groups.append({"rows": [b, d], "kind": "word_order", "level": "high"})
+        b = special("Karim", "Dar");       d1 = add(b, **{"Full Name": "KARIM DAR"}, Mobile="+92" + rows[b]["Mobile"][1:]); d2 = add(b, Email=rows[b]["Email"].title())
+        truth.groups.append({"rows": [b, d1, d2], "kind": "triple", "level": "high"})
+        b = special("Fatima", "Gill");     d = add(b, **{"Full Name": "Fatimah Gill"}, Email=None, Mobile=None, **{"National ID": rows[b]["National ID"]})
+        truth.groups.append({"rows": [b, d], "kind": "id_and_variant", "level": "high"})
+        b = special("Yousef", "Hashmi");   d = add(b, **{"Full Name": "yousef hashmi"}, Email=None, Mobile=None, **{"National ID": None},
+                                                    Company=rows[b]["Company"].upper(), Address=rows[b]["Address"].lower().replace("street", "st"))
+        truth.groups.append({"rows": [b, d], "kind": "name_company_address", "level": "high"})
+        b = special("Rania", "Javed");     d = add(b, **{"Full Name": "rania javed"}, Email=None, Mobile=None, **{"National ID": None}, Company=None, Address=None)
+        truth.groups.append({"rows": [b, d], "kind": "name_only", "level": "maybe"})
+
+        # --- look-alikes that are NOT the same record --------------------------------------------------------------
+        b = special("Imran", "Latif")
+        d = add(b, Email="imran.latif.other@gmail.com", Mobile=_phone(rng, phones), **{"National ID": "99999000000019"},
+                Company="Other Co", Address="1 Elsewhere Road")
+        truth.lookalikes.append({"rows": [b, d], "kind": "same_common_name_different_person"})
+        b = special("Nabil", "Chaudhry")
+        d = add(b, **{"Full Name": "Sana Chaudhry"}, Email="sana.chaudhry.x@gmail.com", Mobile=_phone(rng, phones), **{"National ID": "99999000000027"})
+        d2 = add(b, **{"Full Name": "Zeeshan Chaudhry"}, Email="zeeshan.chaudhry.x@gmail.com", Mobile=_phone(rng, phones), **{"National ID": "99999000000035"})
+        truth.lookalikes.append({"rows": [b, d, d2], "kind": "family_same_address_surname"})
+        b = special("Tariq", "Mirza")
+        d = add(b, **{"Full Name": "Hira Naqvi"}, Email="hira.naqvi.x@gmail.com", **{"National ID": "99999000000043"})
+        truth.lookalikes.append({"rows": [b, d], "kind": "shared_phone_different_names"})
+        b = special("Bilal", "Tahir")
+        d = add(b, **{"National ID": "11111000000011"})
+        truth.lookalikes.append({"rows": [b, d], "kind": "same_name_same_phone_different_id"})
+        b = special("Saad", "Butt")
+        d = add(b, Email="saad.butt.x@gmail.com", Mobile=_phone(rng, phones), **{"National ID": None, "Company": "Another Trading", "Address": "5 Far Street"})
+        truth.lookalikes.append({"rows": [b, d], "kind": "same_name_nothing_else_in_common"})
+
+    frame = pd.DataFrame(rows)
+    frame["Customer ID"] = [f"C{i + 1:05d}" for i in range(len(frame))]
+    return frame, truth
