@@ -25,8 +25,9 @@ AI_RULE = "ai_rule"
 NUMERIC = "numeric"
 FLAGGED = "flagged"   # not a change: a value that looks implausible, flagged and left as it is
 MERGED = "merged"     # a blank cell filled in from a near-duplicate row that the user merged
+COMBINED = "combined"  # a total / latest date / earliest date combined from the rows of merged near-duplicates
 
-REASON_ORDER = (PLACEHOLDER, CALCULATED, LOOKUP, AI_RULE, MERGED, TRIMMED, NUMERIC, FLAGGED)
+REASON_ORDER = (PLACEHOLDER, CALCULATED, LOOKUP, AI_RULE, MERGED, COMBINED, TRIMMED, NUMERIC, FLAGGED)
 
 REASON_LABELS = {
     PLACEHOLDER: "Placeholder cleared",
@@ -34,6 +35,7 @@ REASON_LABELS = {
     LOOKUP: "Inferred from lookup",
     AI_RULE: "AI rule",
     MERGED: "Merged from a near-duplicate",
+    COMBINED: "Combined from near-duplicates",
     TRIMMED: "Whitespace trimmed",
     NUMERIC: "Number converted",
     FLAGGED: "Flagged (not changed)",
@@ -46,6 +48,7 @@ REASON_COLORS = {
     PLACEHOLDER: "D9D9D9",  # light grey
     AI_RULE: "BDD7EE",      # light blue
     MERGED: "E4DFEC",       # light purple
+    COMBINED: "F8CBAD",     # light orange
 }
 
 FLAG_BORDER_COLOR = "E26B0A"   # orange-red border around a flagged cell
@@ -58,6 +61,7 @@ COLOR_MEANINGS = {
     PLACEHOLDER: "Grey - placeholder (e.g. ERROR) cleared to blank",
     AI_RULE: "Blue - changed by an approved AI rule",
     MERGED: "Purple - a blank filled in from a near-duplicate row you merged",
+    COMBINED: "Orange - a total or latest/earliest date combined from the near-duplicates you merged",
 }
 
 
@@ -100,7 +104,7 @@ class ChangeLog:
         self.original_df = None      # the uploaded rows before any cleaning (set by the cleaner; near-duplicate removal reads removed rows from it)
 
     def record_removed(self, original: pd.DataFrame, labels, reason: str, duplicate_of: dict = None, details: dict = None,
-                       filled: dict = None) -> None:
+                       filled: dict = None, combined: dict = None) -> None:
         """Remember rows that were removed: their row label (original position in the
         uploaded file), why, and their full ORIGINAL content (before any cleaning).
         `duplicate_of` maps a removed label to the label of the row that was kept; `details` says why a near-duplicate matched
@@ -111,7 +115,8 @@ class ChangeLog:
         contents = original.loc[labels].to_numpy(dtype=object).tolist()
         for label, values in zip(labels, contents):
             self.removed.append({"index": label, "reason": reason, "duplicate_of": (duplicate_of or {}).get(label), "values": values,
-                                 "detail": (details or {}).get(label, ""), "filled": (filled or {}).get(label, 0)})
+                                 "detail": (details or {}).get(label, ""), "filled": (filled or {}).get(label, 0),
+                                 "combined": (combined or {}).get(label, 0)})
 
     def finalize_removed(self) -> list:
         """The removed rows in file order: original_row (Excel row in the uploaded file, header =
@@ -127,6 +132,7 @@ class ChangeLog:
             row = {"original_row": item["index"] + 2, "kind": item["reason"], "reason": text, "values": item["values"]}
             if item["reason"] == "near_duplicate":
                 row["filled"] = item.get("filled", 0)
+                row["combined"] = item.get("combined", 0)
             rows.append(row)
         return rows
 

@@ -112,3 +112,35 @@ at.run()
 assert not at.exception, [e.value for e in at.exception]
 assert not any("7 groups" in i.value for i in at.info)                                   # looked again as a transaction list
 print("PASSED")
+
+print("TEST: merge rules in the page - suggested, shown per group, combined on Apply; absent for a transaction list")
+frame = fx.pair_customer_list()
+at = new_app("customers.csv", frame.to_csv(index=False).encode())
+sheet = next(iter(at.session_state["cleaned_sheets"]))
+press(at, "Look for near-duplicates")
+assert any(e.label == "How to combine columns when merging" for e in at.expander)
+rule_boxes = {s.key: s.value for s in at.selectbox if str(s.key).startswith("dd_rule_")}
+print("   ", rule_boxes)
+assert rule_boxes[f"dd_rule_{sheet}_Total Spent"] == "sum" and rule_boxes[f"dd_rule_{sheet}_Last Order Date"] == "latest"
+press(at, "Accept all high-confidence groups")
+captions = [c.value for c in at.caption if "Combined:" in c.value]
+print("   ", captions[:1])
+assert len(captions) == 7 and all("Total Spent" in c and "Last Order Date ->" in c for c in captions)
+assert any("values combined" in i.value for i in at.info)
+next(b for b in at.button if b.label.startswith("Apply to")).click()
+at.run()
+assert not at.exception, [e.value for e in at.exception]
+final = at.session_state["cleaned_sheets"][sheet]
+ayesha_total = frame.loc[frame["Customer Name"].isin(["Ayesha Rahman"]), "Total Spent"].iloc[0]
+duplicate_total = frame.loc[frame["Customer Name"] == "AYESHA  RAHMAN", "Total Spent"].iloc[0]
+assert len(final) == 17
+assert abs(float(final.loc[final["Customer Name"].str.contains("Ayesha", case=False), "Total Spent"].iloc[0]) - (ayesha_total + duplicate_total)) < 1e-6
+assert any(e["reason"] == ch.COMBINED for e in at.session_state["change_logs"][sheet].events)
+assert "Values combined" in at.session_state["report_text"]
+
+at = new_app("customers.csv", frame.to_csv(index=False).encode())
+press(at, "Look for near-duplicates")
+next(r for r in at.radio if r.key == "dd_kind").set_value("A list of transactions")
+at.run()
+assert not at.exception and not any(e.label == "How to combine columns when merging" for e in at.expander)
+print("PASSED")

@@ -41,7 +41,7 @@ assert len(result.groups) == 2 and all(g.level == "high" for g in result.groups)
 decisions = ap.accept_all_high(result.groups)
 effect = ap.preview(out, result.groups, decisions)
 print("   preview:", effect)
-assert effect == {"rows_removed": 2, "cells_filled": 1, "groups": 2}, effect
+assert effect == {"rows_removed": 2, "cells_filled": 1, "cells_combined": 0, "groups": 2}, effect
 new = ap.apply_decisions(out, log, result.groups, decisions)
 assert len(new) == 4 and new.loc[0, "City"] == "Lahore" and new.loc[0, "Email"] == "ali@x.com"      # nothing overwritten
 sara = new.loc[2]

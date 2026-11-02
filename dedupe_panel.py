@@ -18,6 +18,7 @@ from toolkit.ui import render_card
 
 PAGE = 10
 ACTIONS = {"Keep all": ap.KEEP_ALL, "Keep one": ap.KEEP_ONE, "Merge (fill blanks)": ap.MERGE}
+RULE_LABELS = {ap.KEEP: "Keep the kept row's value (fill blanks)", ap.SUM: "Add up (sum)", ap.LATEST: "Latest date", ap.EARLIEST: "Earliest date"}
 ROLE_CHOICES = ["(automatic)", "name", "email", "phone", "id", "company", "address", "dob", "place", "ignore"]
 KIND_CHOICES = {"Detect automatically": "auto", "A list of people or companies": "contacts", "A list of transactions": "transactions"}
 STRICTNESS = {"Careful - fewer, surer matches": "strict", "Normal": "normal", "Loose - also lone typos": "loose"}
@@ -119,7 +120,30 @@ def _reset_choices() -> None:
     st.session_state["dd_gen"] = st.session_state.get("dd_gen", 0) + 1
 
 
-def _group_ui(df: pd.DataFrame, group) -> None:
+def _rules_ui(sheet: str, df: pd.DataFrame, profile) -> dict:
+    """How the columns that summarise activity are combined when rows are merged (contact lists only). Returns {column: rule}."""
+    if profile.kind != "contacts":
+        return {}
+    kinds = ap.column_kinds(df, profile)
+    if not kinds:
+        return {}
+    suggested = ap.suggest_rules(df, profile)
+    rules = {}
+    with st.expander("How to combine columns when merging", expanded=bool(suggested)):
+        st.caption("A merge keeps one row. Columns that add up (totals, counts) or track a date (last order, joined) are combined instead of "
+                   "losing the removed row's value; every other column keeps the kept row's value and only its blanks are filled.")
+        for column, kind in kinds.items():
+            allowed = [ap.KEEP, ap.SUM] if kind == "number" else [ap.KEEP, ap.LATEST, ap.EARLIEST]
+            left, right = st.columns([2, 3])
+            left.write(column)
+            chosen = right.selectbox(column, allowed, index=allowed.index(suggested.get(column, ap.KEEP)), format_func=RULE_LABELS.get,
+                                     key=f"dd_rule_{sheet}_{column}", label_visibility="collapsed")
+            if chosen != ap.KEEP:
+                rules[column] = chosen
+    return rules
+
+
+def _group_ui(df: pd.DataFrame, group, rules: dict = None) -> None:
     badge = "🟢 High" if group.level == "high" else "🟡 Maybe"
     with st.container(border=True):
         st.markdown(f"**Group {group.id}** · {badge} · {len(group.rows)} rows")
@@ -137,6 +161,10 @@ def _group_ui(df: pd.DataFrame, group) -> None:
                                    key=f"dd_k_{gen}_{group.id}", disabled=ACTIONS[action_name] == ap.KEEP_ALL,
                                    help="The most complete row is chosen first.")
         _choices()[group.id] = (action_name, position[keep_row])
+        if ACTIONS[action_name] == ap.MERGE and rules:
+            line = ap.describe_merge(df, group, position[keep_row], rules)
+            if line:
+                st.caption("🧮 Combined: " + line)
         st.dataframe(_row_table(df, group, position[keep_row], ACTIONS[action_name]), hide_index=True)
 
 
@@ -188,25 +216,27 @@ def render(cleaned_sheets: dict, change_logs: dict, default_locale: str, after_a
     top.button("Accept all high-confidence groups", on_click=_accept_all, args=(groups,), key="dd_accept_all",
                help="Keeps the most complete row of each high-confidence group, fills its blanks from the others (a value is never "
                     "overwritten) and removes the rest - after you check the summary below and press Apply.")
+    rules = _rules_ui(sheet, df, result.profile)
     pages = (len(groups) - 1) // PAGE + 1
     page = st.number_input("Page", 1, pages, 1, key="dd_page") if pages > 1 else 1
     for group in groups[(page - 1) * PAGE:page * PAGE]:
-        _group_ui(df, group)
+        _group_ui(df, group, rules)
     decisions = _decisions(groups)
-    effect = ap.preview(df, groups, decisions)
+    effect = ap.preview(df, groups, decisions, rules)
     st.divider()
     if effect["groups"] == 0:
         st.caption("Choose what to do with a group (or press \"Accept all high-confidence groups\"), then apply.")
         return
-    st.info(f"{effect['rows_removed']:,} rows will be removed, {effect['cells_filled']:,} blank cells filled "
-            f"({effect['groups']:,} group{'s' if effect['groups'] != 1 else ''}). The removed rows go to the Removed Rows sheet.")
+    st.info(f"{effect['rows_removed']:,} rows will be removed, {effect['cells_filled']:,} blank cells filled"
+            + (f", {effect['cells_combined']:,} values combined (totals / dates)" if effect["cells_combined"] else "") +
+            f" ({effect['groups']:,} group{'s' if effect['groups'] != 1 else ''}). The removed rows go to the Removed Rows sheet.")
     if st.button(f"Apply to {effect['groups']:,} group{'s' if effect['groups'] != 1 else ''}", type="primary", key="dd_apply"):
-        new_df = ap.apply_decisions(df, change_logs[sheet], groups, decisions)
+        new_df = ap.apply_decisions(df, change_logs[sheet], groups, decisions, rules)
         st.session_state.cleaned_sheets = {**cleaned_sheets, sheet: new_df}
         st.session_state.pop("dd_cache", None)
         st.session_state.pop("dd_started", None)
         _reset_choices()
-        st.session_state["dd_message"] = (f"Done: {effect['rows_removed']:,} rows removed and {effect['cells_filled']:,} blank cells "
-                                          "filled. See the Changes tab and the Removed Rows sheet.")
+        st.session_state["dd_message"] = (f"Done: {effect['rows_removed']:,} rows removed, {effect['cells_filled']:,} blank cells filled"
+                                          + (f" and {effect['cells_combined']:,} values combined" if effect["cells_combined"] else "") + ". See the Changes tab and the Removed Rows sheet.")
         after_apply()
         st.rerun()

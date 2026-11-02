@@ -139,6 +139,9 @@ def _removed_lines(rows: list) -> list:
         if kind == "near_duplicate" and numbers:
             filled = sum(row.get("filled", 0) for row in rows if row["kind"] == kind)
             lines.append(f"  Blank cells filled in the kept rows from those near-duplicates: {filled}")
+            combined = sum(row.get("combined", 0) for row in rows if row["kind"] == kind)
+            if combined:
+                lines.append(f"  Values combined in the kept rows (totals added up, latest / earliest dates): {combined}")
     if lines:
         lines.append("  Their full original content is on the 'Removed Rows' sheet of the Excel download.")
     return lines
