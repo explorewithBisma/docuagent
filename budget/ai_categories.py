@@ -36,17 +36,7 @@ CATEGORY_SCHEMA = {
 }
 
 
-def ai_available(env=None):
-    """(True, provider) when a provider is configured with an API key, else (False, reason) - never raises."""
-    env = os.environ if env is None else env
-    try:
-        provider = select_provider(env)
-    except AISuggestionError as error:
-        return False, str(error)
-    variable = "GROQ_API_KEY" if provider == "groq" else "ANTHROPIC_API_KEY"
-    if not (env.get(variable) or "").strip():
-        return False, f"No API key is set ({variable}), so the AI step is skipped."
-    return True, provider
+ai_available = ai_rules.ai_available          # one check for every page (defined in ai_rules.py)
 
 
 def clean_descriptions(descriptions) -> list:

@@ -1,9 +1,68 @@
-# Excel & CSV Cleaner (Web App)
+# Spreadsheet Helper
 
-A simple browser-based tool: upload a messy Excel/CSV file, clean it with
-one click, download the result.
+Five simple tools for spreadsheets, in one browser app: upload a file, get a better file or a plain-language report back. Nothing is stored on the server.
 
-## What the cleaning does
+> 🔒 **Privacy:** files are processed in memory and not stored. The optional AI features send only short samples or description texts, only when you press their button
+> (see [AI features](#ai-features-optional)).
+
+| | Tool | What you give it | What you get |
+|---|---|---|---|
+| 🧹 | **Clean my file** | a messy Excel/CSV | a cleaned file with every change colour-coded and listed; optional near-duplicate finder with merge |
+| 🩺 | **Check my file** (Excel Doctor) | an Excel workbook | a plain-language report of typed-in totals, broken formulas, ranges that stop short, and a highlighted copy |
+| 🔗 | **Match two files** | a bank statement + your records (or stock + sales ...) | what matches, what is missing on either side, amount mismatches - one Excel result |
+| 💰 | **Build my budget** | a bank statement, a messy budget, or nothing | a clean budget workbook with a dashboard made of formulas; opening/closing balance checked |
+| ✅ | **Check every month** | a clean sample once; then each month's file | pass/fail against simple rules, worst problems first, a highlighted copy |
+
+**Screenshots** *(placeholders - add your own in `docs/screenshots/`)*
+
+| Start screen | Clean my file | Check my file |
+|---|---|---|
+| 📷 `docs/screenshots/start-screen.png` | 📷 `docs/screenshots/clean-my-file.png` | 📷 `docs/screenshots/check-my-file.png` |
+
+| Match two files | Build my budget | Check every month |
+|---|---|---|
+| 📷 `docs/screenshots/match-two-files.png` | 📷 `docs/screenshots/build-my-budget.png` | 📷 `docs/screenshots/check-every-month.png` |
+
+## Features at a glance
+
+- **Upload and go.** Every tool finds the columns, the header row and the settings by itself and shows them on a **"What I found"** card with where each answer came
+  from and how sure it is (sure / probably / guess). Anything you disagree with is editable under **Edit details**.
+- **A short "Please check" list** with only the things worth a look, the most important first.
+- **Your data is never changed silently.** The cleaner colours and lists every change; the checkers (Doctor, Match, Monthly) only read your file and give you a copy.
+- **Plain language.** Reasons and evidence are written in words ("same amount, dates 2 days apart, description 94% similar"), with the row numbers of your own file.
+- **No AI needed.** Everything works without an API key; the AI buttons (rule suggestions, budget categories) are off and say why until a key is set.
+
+## Run it locally
+
+```
+pip install -r requirements.txt
+streamlit run main.py
+```
+
+The browser opens at `http://localhost:8501`. To also run the tests: `pip install -r requirements-dev.txt` and then `python tests/run_all.py`
+(see [Running the tests](#running-the-tests)).
+
+## Deploy on Streamlit Community Cloud
+
+1. Put this folder in a GitHub repository (the repository root is this folder, so `main.py` is at the top). **Never commit your API keys:** `.gitignore` already excludes
+   `.streamlit/secrets.toml` and `.env`, and `tests/test_deploy_ready.py` fails if a file that looks like an API key is tracked.
+2. On [share.streamlit.io](https://share.streamlit.io) choose **New app**, pick the repository and branch, and set **Main file path** to `main.py`.
+3. In **Advanced settings** pick a recent Python (3.11, 3.12 or 3.13). The packages come from `requirements.txt` (runtime only; the test packages are in `tests/requirements-test.txt`).
+4. *(Optional, for the AI features.)* In the app's **Settings > Secrets** add `GROQ_API_KEY = "..."` or `ANTHROPIC_API_KEY = "..."` (see [AI features](#ai-features-optional)).
+   Without a key the app runs normally and the AI buttons explain why they are off.
+5. `config.py` has `SHOW_UNFINISHED_FEATURES = False` for the public link, and `.streamlit/config.toml` sets a 50 MB upload limit and turns off usage statistics.
+
+*Developed and tested here with Python 3.14 and Streamlit 1.62. Choose the newest Python that Streamlit Cloud offers (3.12 or 3.13 are good choices); I have not run the tests on other Python versions.*
+
+## AI features (optional)
+
+Two optional features can use an AI provider; both are off until a key is set, and both only send what their button says (never a whole file): *Suggest Cleaning Rules* in
+**Clean my file** (column names, types, null counts and a few sample values, optionally masked) and *Use AI to suggest categories* in **Build my budget** (only the distinct
+description texts that no keyword matched). The details, the provider choice and the model overrides are in [Setup](#setup-one-time) below.
+
+## The cleaner in detail
+
+### What the cleaning does
 - Removes duplicate rows
 - Removes completely empty rows and columns
 - Trims extra leading/trailing spaces from text cells
@@ -246,7 +305,7 @@ recipe on a new (similarly-shaped) file is fast but still never fully silent.
    Without this, the rest of the app (the 4 deterministic cleaning steps)
    works exactly the same - only the "Suggest Cleaning Rules" button needs it.
 
-   Set it in the same terminal you run `streamlit run app.py` from (or set it
+   Set it in the same terminal you run `streamlit run main.py` from (or set it
    permanently in your system's environment variables, then restart the
    terminal). The app does **not** read a `.env` file automatically.
 
@@ -310,7 +369,9 @@ answering. The app asks for low reasoning effort, leaves a large token budget
 the final answer - never the reasoning text. If you switch `GROQ_MODEL` to a
 non-reasoning model, those reasoning options are simply not sent.
 
-### Deploying (e.g. Streamlit Community Cloud)
+### Deploying (e.g. Streamlit Community Cloud) - the secrets part
+
+(The full deployment steps are near the top of this file; this is only about the API key.)
 
 Don't put the key in the code or commit it. In your app's **Settings →
 Secrets**, add the key for the provider you use (and optionally
@@ -361,10 +422,10 @@ crashing.
 ## Run it
 
 ```
-streamlit run app.py
+streamlit run main.py
 ```
 
-This starts a local web server and should automatically open a new browser
+(`streamlit run app.py` still opens the cleaner on its own.) This starts a local web server and should automatically open a new browser
 tab at `http://localhost:8501`. If it doesn't open automatically, copy that
 address into your browser manually.
 
@@ -389,25 +450,28 @@ To stop the app, go back to the terminal and press `Ctrl+C`.
 ## Project structure
 
 ```
-app.py          - the page itself (UI only)
-cleaning.py     - the deterministic cleaning steps (headers, trim, placeholders, numbers, duplicates, empty, fills)
-quality.py      - shared helpers: placeholder matching, number parsing, phone detection, before/after profile
-derive.py       - finding relationships between columns and filling gaps only when exactly derivable
-changes.py      - cell-level change tracking (row, column, old, new, reason), in memory only
-xlsx_export.py  - the highlighted Excel workbook: colors, comments, Cleaning Summary and Change Log sheets
-io_utils.py     - loading files / building the plain CSV / Excel bytes
-report.py       - the on-page cards, color-coded preview, change table, quality tables and the .txt report
-locales.py      - country/locale defaults (phone region, date, currency)
-rule_engine.py  - the 5 AI-suggestable rule types (incl. map_values), executed locally with pandas
-flags.py        - deterministic warnings about implausible numbers (flagged, never changed)
-ai_rules.py     - talks to Groq or Anthropic to SUGGEST rules (never runs them)
-recipes.py      - saving/loading a reusable set of approved rules as JSON
-tests/          - run everything with:  python tests/run_all.py
+main.py             - the entry point: the start screen with the five tools (run this one)
+app.py              - Clean my file (the page; UI only)        dedupe_panel.py - its near-duplicate section
+doctor_app.py       - Check my file (Excel Doctor)             match_app.py    - Match two files
+budget_app.py       - Build my budget                          monthly_app.py  - Check every month
+config.py           - SHOW_UNFINISHED_FEATURES (False for the public link)
+.streamlit/         - config.toml (upload limit, no usage statistics); secrets.toml is local only and git-ignored
+
+cleaning.py quality.py derive.py changes.py xlsx_export.py io_utils.py report.py flags.py rule_engine.py recipes.py ai_rules.py locales.py
+                    - the cleaner's engine: deterministic steps, change tracking, the highlighted workbook, optional AI rule suggestions
+dedupe/             - near-duplicate finding: columns, normalising, blocking, explainable scores, groups, merge
+doctor/             - Excel Doctor: checks, formula evaluation, root causes, report
+reconcile/          - Match two files: column detection, matching rounds, report, Excel result
+budget/             - the budget builder: import, statement reading, categories, workbook
+datarules/          - Check every month: the rules file, suggestions from a sample, checks, highlighted copy
+toolkit/            - shared by all tools: the "What I found" card, Please-check ranking, the highlight engine
+tests/              - run everything with:  python tests/run_all.py
 ```
 
 ## Running the tests
 
 ```
+pip install -r requirements-dev.txt     # the app's packages + the test-only ones (formulas, recordlinkage)
 python tests/run_all.py
 ```
 Runs every script in `tests/` (logic tests, plus UI tests that drive the real

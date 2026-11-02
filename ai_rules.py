@@ -86,6 +86,20 @@ def select_provider(env=None) -> str:
     return "anthropic"
 
 
+def ai_available(env=None):
+    """(True, provider) when a provider is configured with an API key, else (False, a plain reason) - never raises. The pages use it to switch
+    the AI buttons off and say why."""
+    env = os.environ if env is None else env
+    try:
+        provider = select_provider(env)
+    except AISuggestionError as error:
+        return False, str(error)
+    variable = "GROQ_API_KEY" if provider == "groq" else "ANTHROPIC_API_KEY"
+    if not (env.get(variable) or "").strip():
+        return False, f"No API key is set ({variable}), so the AI step is skipped."
+    return True, provider
+
+
 def model_for(provider: str, env=None) -> str:
     """The model used for a provider: the GROQ_MODEL / ANTHROPIC_MODEL
     environment variable if set, otherwise the default constant above."""

@@ -1,6 +1,11 @@
-streamlit>=1.30.0
+# Everything the app needs to run (this is the file Streamlit Community Cloud installs).
+# Test-only packages are NOT here: see tests/requirements-test.txt.
+streamlit>=1.50.0
 pandas>=2.0.0,<3.0.0
+numpy>=1.24
 openpyxl>=3.1.0
+python-dateutil>=2.8
+phonenumbers>=8.13.0
+# optional AI features (the app runs without an API key; the buttons explain why they are off)
 anthropic>=0.40.0
 groq>=1.0.0
-phonenumbers>=8.13.0

@@ -1,2 +1,4 @@
-# Test-only dependencies (the app itself does not need these)
+# Test-only dependencies (the app itself does not need these). Install with:  pip install -r requirements.txt -r tests/requirements-test.txt
+formulas>=1.2.7         # recalculates the generated budget workbook without Excel (tests/budget_calc.py)
 recordlinkage>=0.16     # ships the FEBRL benchmark datasets used by tests/test_dedupe_febrl.py
+httpx>=0.24            # (already installed by the AI client libraries) the tests use it to fake API errors

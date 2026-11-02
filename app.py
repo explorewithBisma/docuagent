@@ -459,7 +459,10 @@ if st.session_state.cleaned_sheets is not None:
                 "and click Clean File again."
             )
 
-        if st.button("Suggest Cleaning Rules"):
+        ai_ready, ai_reason = ai_rules.ai_available()
+        if not ai_ready:
+            st.caption(f"🤖 AI suggestions are switched off: {ai_reason} Everything else on this page works without them.")
+        if st.button("Suggest Cleaning Rules", disabled=not ai_ready):
             suggested_rules_by_sheet = {}
             rule_notes_by_sheet = {}
             suggestion_info = None  # which provider/model answered, plus any discarded suggestions

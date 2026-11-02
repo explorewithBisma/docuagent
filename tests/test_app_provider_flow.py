@@ -99,26 +99,23 @@ print()
 print("=" * 70)
 print("TEST 3: Groq selected but no GROQ_API_KEY -> clear message, no crash")
 print("=" * 70)
-at3 = fresh_app()
 with mock.patch.dict(os.environ, {"AI_PROVIDER": "groq"}, clear=False):
     os.environ.pop("GROQ_API_KEY", None)
-    next(b for b in at3.button if b.label == "Suggest Cleaning Rules").click()
-    at3.run()
-no_exception(at3, "missing-key Suggest click")
-errors = [e.value for e in at3.error]
-print(errors)
-assert any("GROQ_API_KEY" in e for e in errors)
+    at3 = fresh_app()
+no_exception(at3, "missing-key page")
+button3 = next(b for b in at3.button if b.label == "Suggest Cleaning Rules")
+captions = [c.value for c in at3.caption if "AI suggestions are switched off" in c.value]
+assert button3.proto.disabled is True and captions and "GROQ_API_KEY" in captions[0] and not at3.error
 
 print()
 print("=" * 70)
 print("TEST 4: invalid AI_PROVIDER -> clear message, no crash")
 print("=" * 70)
-at4 = fresh_app()
 with mock.patch.dict(os.environ, {"AI_PROVIDER": "openai"}):
-    next(b for b in at4.button if b.label == "Suggest Cleaning Rules").click()
-    at4.run()
-no_exception(at4, "invalid AI_PROVIDER Suggest click")
-assert any("AI_PROVIDER" in e.value for e in at4.error)
+    at4 = fresh_app()
+no_exception(at4, "invalid AI_PROVIDER page")
+assert next(b for b in at4.button if b.label == "Suggest Cleaning Rules").proto.disabled is True
+assert any("AI_PROVIDER" in c.value and "switched off" in c.value for c in at4.caption)
 
 print()
 print("ALL PROVIDER UI TESTS PASSED")

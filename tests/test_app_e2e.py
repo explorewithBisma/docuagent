@@ -49,15 +49,12 @@ assert "Download Cleaned File" in download_labels
 assert "Download Cleaning Report (.txt)" in download_labels
 
 suggest_button = next(b for b in at.button if b.label == "Suggest Cleaning Rules")
-suggest_button.click()
-at.run()
-print_exceptions(at, "Suggest Cleaning Rules click (expected: graceful API error, not a crash)")
-
-error_texts = [e.value for e in at.error]
-print("st.error messages shown:", error_texts)
-assert any("Could not get AI suggestions" in msg for msg in error_texts), \
-    "Expected a graceful 'Could not get AI suggestions' error without an API key"
-print("Confirmed: missing API key is handled gracefully (no crash, clear error shown)")
+assert suggest_button.proto.disabled is True, "without an API key the AI button must be switched off"
+captions = [c.value for c in at.caption]
+assert any("AI suggestions are switched off: No API key is set" in c and "works without them" in c for c in captions), captions
+print_exceptions(at, "page with no API key (expected: the AI button is off and says why)")
+assert not at.error
+print("Confirmed: with no API key the AI button is disabled and the page explains why (no crash, no error)")
 
 print()
 print("=" * 70)

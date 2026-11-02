@@ -35,6 +35,7 @@ KEYS = {"cleaner": "start_cleaner", "check": "start_check", "match": "start_matc
 def start_screen():
     st.title("📊 Spreadsheet Helper")
     st.write("What would you like to do?")
+    st.caption("🔒 Privacy: Files are processed in memory and not stored. Nothing is kept on the server after you close the page.")
     visible = [t for t in TOOLS if PAGES.get(t[0]) is not None or config.SHOW_UNFINISHED_FEATURES]
     for start in range(0, len(visible), 3):
         row = visible[start:start + 3]

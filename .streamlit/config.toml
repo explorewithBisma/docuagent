@@ -1,0 +1,6 @@
+[server]
+headless = true
+maxUploadSize = 50          # MB per file: plenty for a statement or a sheet, and gentle on a shared server
+
+[browser]
+gatherUsageStats = false
