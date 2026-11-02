@@ -214,3 +214,33 @@ def inflate(frame: pd.DataFrame, truth: Truth, count: int, seed: int = 3):
     out["Customer ID"] = [f"C{i + 1:06d}" for i in range(len(out))]
     merged = Truth(groups=truth.groups + groups, lookalikes=truth.lookalikes)
     return out, merged
+
+
+# 17 invented people + 7 near-duplicate rows = 24 rows. A duplicate keeps its phone or email (so the repeats are mostly pairs on Email), but
+# its last order date and total spent differ - exactly what made the finder call the file "a list of transactions".
+PAIR_PEOPLE = [("Ayesha Rahman", "0300-1112221", "ayesha.r@mail.test"), ("Bilal Chaudhry", "0301-1112222", "bilal.c@mail.test"),
+          ("Cyrus Mansoor", "0302-1112223", "cyrus.m@mail.test"), ("Dania Sheikh", "0303-1112224", "dania.s@mail.test"),
+          ("Ehsan Qadir", "0304-1112225", "ehsan.q@mail.test"), ("Farah Naqvi", "0305-1112226", "farah.n@mail.test"),
+          ("Ghazi Mirza", "0306-1112227", "ghazi.m@mail.test"), ("Hina Baig", "0307-1112228", "hina.b@mail.test"),
+          ("Idris Latif", "0308-1112229", "idris.l@mail.test"), ("Javeria Dar", "0309-1112230", "javeria.d@mail.test"),
+          ("Kashif Ansari", "0310-1112231", "kashif.a@mail.test"), ("Lubna Gill", "0311-1112232", "lubna.g@mail.test"),
+          ("Murtaza Hashmi", "0312-1112233", "murtaza.h@mail.test"), ("Nadia Virk", "0313-1112234", "nadia.v@mail.test"),
+          ("Osama Zaidi", "0314-1112235", "osama.z@mail.test"), ("Parveen Cheema", "0315-1112236", "parveen.c@mail.test"),
+          ("Qasim Abbasi", "0316-1112237", "qasim.a@mail.test")]
+PAIR_CITIES = ["Lahore", "Karachi", "Dubai", "Doha", "Multan", "Sharjah"]
+PAIR_DUPLICATES = {0: ("AYESHA  RAHMAN", None, "ayesha.r@mail.test"), 1: ("Bilal Chaudary", "03011112222", None), 2: ("Cyrus Mansoor.", "+92 302 1112223", "CYRUS.M@MAIL.TEST"),
+              3: ("Dania Shaikh", None, "dania.s@mail.test"), 4: ("E. Qadir", "0304 1112225", None), 5: ("Naqvi, Farah", None, "farah.n@mail.test"),
+              6: ("ghazi mirza", "0306-1112227", "ghazi.m@mail.test")}
+
+
+def pair_customer_list():
+    rows = []
+    for i, (name, phone, email) in enumerate(PAIR_PEOPLE):
+        rows.append({"Customer Name": name, "Phone": phone, "Email": email, "City": PAIR_CITIES[i % 6], "Date of Birth": date(1970 + i, 1 + i % 12, 1 + i),
+                     "Last Order Date": date(2026, 1, 1) + timedelta(days=i * 3), "Total Spent": 100.0 + 37 * i})
+    for k, (name, phone, email) in PAIR_DUPLICATES.items():
+        base = rows[k]
+        rows.append({**base, "Customer Name": name, "Phone": phone, "Email": email,
+                     "Last Order Date": base["Last Order Date"] + timedelta(days=40 + k), "Total Spent": base["Total Spent"] + 55 + k})
+    frame = pd.DataFrame(rows)
+    return frame.sample(frac=1, random_state=4).reset_index(drop=True)             # duplicates are not next to their originals

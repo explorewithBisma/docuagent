@@ -51,7 +51,6 @@ def _options(sheet: str, df: pd.DataFrame, default_locale: str) -> DedupeOptions
 
 def _edit_details(sheet: str, df: pd.DataFrame, default_locale: str) -> None:
     with st.expander("Edit details"):
-        st.radio("What kind of file is this?", list(KIND_CHOICES), key="dd_kind", horizontal=True)
         left, middle, right = st.columns(3)
         left.selectbox("How sure must a match be?", list(STRICTNESS), index=1, key="dd_strictness")
         codes = list(LOCALES)
@@ -176,6 +175,11 @@ def render(cleaned_sheets: dict, change_logs: dict, default_locale: str, after_a
     result = st.session_state["dd_cache"]["result"]
 
     render_card(result.report, "What I found", summary=result.summary)
+    unsure = result.profile.kind_confidence == "low"
+    st.radio("Is this a list of people or a list of transactions?" + (" (not sure - please check)" if unsure else ""), list(KIND_CHOICES),
+             key="dd_kind", horizontal=True,
+             help="A list of people: the same person on two rows is a duplicate. A list of transactions: a customer legitimately appears "
+                  "on many rows, so whole records are compared. Changing this looks again straight away.")
     groups = result.groups
     if not groups:
         return

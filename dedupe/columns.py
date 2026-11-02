@@ -167,6 +167,15 @@ def _key_column(roles):
     return names[0].column if names else ""
 
 
+SHOPPING_WORDS = {"order", "orders", "invoice", "transaction", "txn", "qty", "quantity", "item", "items", "product", "sku", "receipt", "basket"}
+PER_PERSON_QUALIFIERS = {"last", "total", "first", "latest", "lifetime", "average", "avg", "count"}      # "Last Order Date", "Total Spent": one per person
+
+
+def _shopping_header(column) -> bool:
+    tokens = _name_words(column)
+    return bool(tokens & SHOPPING_WORDS) and not tokens & PER_PERSON_QUALIFIERS
+
+
 def detect_kind(df: pd.DataFrame, roles: list) -> tuple:
     """-> (kind, reason, confidence). See the module docstring."""
     if not any(r.used for r in roles):
@@ -192,8 +201,20 @@ def detect_kind(df: pd.DataFrame, roles: list) -> tuple:
         return ("transactions", f"'{row_keys[0].column}' is a different order / document number on every row, next to "
                 + ("dates" if dates else "amounts") + f" ('{(dates or amounts)[0]}'): each row is a transaction, not a person.", "high")
     if repeat_share >= 0.25 and variation_share >= 0.5:
-        return ("transactions", f"'{key}' repeats on {repeat_share:.0%} of the rows and their dates/amounts differ: each row looks like a "
-                "transaction, not a person.", "high" if repeat_share >= 0.4 else "medium")
+        # The repeats alone prove nothing: near-duplicates ARE repeats whose dates and amounts differ. They count as transactions only
+        # when the repeats look like a transaction list - identifiers that come back MANY times, not mostly in pairs.
+        repeating = counts[counts >= 2]
+        pair_share = float((repeating == 2).mean())
+        heavy = int((repeating >= 3).sum())
+        median_repeats = float(repeating.median())
+        shopping = [c for c in df.columns if _shopping_header(c)]
+        many_times = median_repeats > 2 or (heavy >= 1 and pair_share < 0.6)
+        if many_times:
+            return ("transactions", f"'{key}' comes back {median_repeats:.0f} times per value on average ({repeat_share:.0%} of the rows repeat) and "
+                    "their dates/amounts differ: each row looks like a transaction, not a person."
+                    + (f" Columns like '{shopping[0]}' agree." if shopping else ""), "high" if shopping or repeat_share >= 0.4 else "medium")
+        return ("contacts", f"Not sure: '{key}' repeats on {repeat_share:.0%} of the rows, but mostly in pairs ({pair_share:.0%} of the repeated values appear "
+                "exactly twice), which is what duplicates look like - so this is treated as a list of people. Switch it below if it is a list of orders.", "low")
     if not key:
         return "contacts", "No clear identifying column; treated as a list of people.", "low"
     return ("contacts", f"'{key}' repeats on only {repeat_share:.0%} of the rows, so each row is a person or company, not a transaction.",

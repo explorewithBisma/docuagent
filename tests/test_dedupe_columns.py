@@ -67,7 +67,7 @@ assert profile.kind == "transactions" and "'Order ID' is a different order / doc
 repeat = pd.DataFrame({"Customer ID": [f"K{i % 10}" for i in range(60)], "Name": [f"Person {i % 10}" for i in range(60)],
                        "Visit Date": [date(2026, 1, 1) + timedelta(days=i) for i in range(60)], "Spend": [5.0 + i for i in range(60)]})
 kind = co.build_profile(repeat)
-assert kind.kind == "transactions" and "repeats on 100% of the rows" in kind.kind_reason, kind.kind_reason
+assert kind.kind == "transactions" and "comes back 6 times per value" in kind.kind_reason, kind.kind_reason
 nothing = pd.DataFrame({"a": range(20), "b": [x * 2.5 for x in range(20)]})
 assert co.build_profile(nothing).kind == "unknown" and "No column that identifies" in co.build_profile(nothing).kind_reason
 print("PASSED")

@@ -96,3 +96,19 @@ assert all(r["reason"].startswith("Near-duplicate of row") for r in log.finalize
 assert "near-duplicate" in at.session_state["report_text"].lower()
 assert any("rows removed" in s.value for s in at.success)
 print("PASSED")
+
+print("TEST: the file-type switch is on the card itself; an unsure type says so; switching looks again")
+sys.path.insert(0, str(ROOT / "tests"))
+import dedupe_fixtures as fx
+at = new_app("customers.csv", fx.pair_customer_list().to_csv(index=False).encode())
+press(at, "Look for near-duplicates")
+kind_radio = next(r for r in at.radio if r.key == "dd_kind")
+print("   ", kind_radio.label, "|", kind_radio.value)
+assert "not sure" in kind_radio.label and kind_radio.value == "Detect automatically"
+assert any("7 groups of possible duplicates" in i.value for i in at.info)
+assert any("Not sure" in m.value for m in at.markdown) or any("Not sure" in c.value for c in at.caption)
+kind_radio.set_value("A list of transactions")
+at.run()
+assert not at.exception, [e.value for e in at.exception]
+assert not any("7 groups" in i.value for i in at.info)                                   # looked again as a transaction list
+print("PASSED")
