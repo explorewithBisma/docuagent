@@ -19,12 +19,22 @@ def run(script):
 
 
 failed = []
+
+
+def report(script, result):
+    ok = result.returncode == 0
+    print(f"{'PASS' if ok else 'FAIL'}  {script.name}")
+    if not ok:
+        failed.append(script.name)
+        print((result.stdout + result.stderr)[-1500:])
+
+
+# Timing tests (*performance*) run one at a time, after the others: a time budget means nothing while five other scripts compete for the CPU.
+timed = [s for s in scripts if "performance" in s.name]
 with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-    for script, result in pool.map(run, scripts):             # results come back in file order
-        ok = result.returncode == 0
-        print(f"{'PASS' if ok else 'FAIL'}  {script.name}")
-        if not ok:
-            failed.append(script.name)
-            print((result.stdout + result.stderr)[-1500:])
+    for script, result in pool.map(run, [s for s in scripts if s not in timed]):             # results come back in file order
+        report(script, result)
+for script in timed:
+    report(*run(script))
 print(f"\n{len(scripts) - len(failed)}/{len(scripts)} test scripts passed")
 sys.exit(1 if failed else 0)
