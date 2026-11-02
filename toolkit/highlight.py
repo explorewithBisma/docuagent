@@ -166,12 +166,12 @@ def _patch_styles(styles: str, needed: set):
 # ---------------------------------------------------------------------------------------------------------------
 # NOTES (comments + VML)
 # ---------------------------------------------------------------------------------------------------------------
-def _comments_xml(notes: dict) -> str:
+def _comments_xml(notes: dict, author: str = AUTHOR) -> str:
     items = ""
     for coord in sorted(notes, key=lambda c: _split_coord(c)):
         items += (f'<comment ref="{coord}" authorId="0"><text><r><t xml:space="preserve">{escape(clean(notes[coord]))}</t></r></text></comment>')
     return ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
-            f'<comments xmlns="{NS_MAIN}"><authors><author>{AUTHOR}</author></authors><commentList>{items}</commentList></comments>')
+            f'<comments xmlns="{NS_MAIN}"><authors><author>{escape(author)}</author></authors><commentList>{items}</commentList></comments>')
 
 
 def _vml_xml(notes: dict, idmap: int) -> str:
@@ -244,10 +244,12 @@ def _report_sheet_xml(rows: list, special: dict, footer: str) -> str:
 # ---------------------------------------------------------------------------------------------------------------
 # THE PATCH
 # ---------------------------------------------------------------------------------------------------------------
-def patch_workbook(original: bytes, annotations: list, report_rows: list, footer: str = "") -> PatchResult:
-    """Return the highlighted copy (validated). Raises PatchError when it cannot be made safely."""
+def patch_workbook(original: bytes, annotations: list, report_rows: list, footer: str = "", sheet_title: str = REPORT_SHEET,
+                   author: str = AUTHOR) -> PatchResult:
+    """Return the highlighted copy (validated). Raises PatchError when it cannot be made safely. `sheet_title` names the report sheet and
+    `author` the notes (each tool uses its own: "Doctor report" / "Rule report")."""
     try:
-        result = _patch(original, annotations, report_rows, footer)
+        result = _patch(original, annotations, report_rows, footer, sheet_title, author)
     except PatchError:
         raise
     except Exception as error:                              # anything unexpected: never hand out a half-made file
@@ -256,7 +258,7 @@ def patch_workbook(original: bytes, annotations: list, report_rows: list, footer
     return result
 
 
-def _patch(original: bytes, annotations: list, report_rows: list, footer: str) -> PatchResult:
+def _patch(original: bytes, annotations: list, report_rows: list, footer: str, sheet_title: str = REPORT_SHEET, author: str = AUTHOR) -> PatchResult:
     try:
         source = zipfile.ZipFile(io.BytesIO(original))
     except zipfile.BadZipFile:
@@ -335,7 +337,7 @@ def _patch(original: bytes, annotations: list, report_rows: list, footer: str) -
                 n_vml = _next_number(list(names) + list(added), r"xl/drawings/vmlDrawing(\d+)\.vml$")
                 vml_drawings += 1
                 comments_part, vml_part = f"xl/comments{n_comments}.xml", f"xl/drawings/vmlDrawing{n_vml}.vml"
-                added[comments_part] = _comments_xml(notes)
+                added[comments_part] = _comments_xml(notes, author)
                 added[vml_part] = _vml_xml(notes, 200 + vml_drawings)
                 rels = existing_rels if existing_rels is not None else (
                     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>')
@@ -356,9 +358,9 @@ def _patch(original: bytes, annotations: list, report_rows: list, footer: str) -
     # --- the report sheet (last) -------------------------------------------------------------------------------------------
     workbook_xml = text["xl/workbook.xml"]
     existing_names = [html.unescape(n) for n in re.findall(r'<sheet\b[^>]*?\sname="([^"]*)"', workbook_xml)]
-    title, k = REPORT_SHEET, 2
+    title, k = sheet_title, 2
     while title in existing_names:
-        title, k = f"{REPORT_SHEET} {k}", k + 1
+        title, k = f"{sheet_title} {k}", k + 1
     new_sheet_part = f"xl/worksheets/sheet{_next_number(list(names) + list(added), r'xl/worksheets/sheet(\d+)\.xml$')}.xml"
     added[new_sheet_part] = _report_sheet_xml(report_rows, special, footer)
     used = [int(m) for m in re.findall(r'Id="rId(\d+)"', rels_text)]
