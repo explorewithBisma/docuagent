@@ -26,6 +26,7 @@ ID_WORDS = {"id", "cnic", "passport", "nid", "ssn", "iqama", "emirates", "licenc
 TRANSACTION_WORDS = {"order", "invoice", "transaction", "txn", "receipt", "ticket"}      # an id of a purchase / document: the file lists transactions
 COUNTER_WORDS = {"serial", "sr", "sno", "index", "row", "line", "record"}                 # a row counter
 OTHER_ID_WORDS = {"product", "item", "sku", "category", "store", "branch", "region", "shipment", "delivery", "batch", "lot"}
+PERSON_ID_WORDS = {"cnic", "passport", "nid", "ssn", "iqama", "emirates", "national", "aadhaar", "aadhar", "nic", "tin", "vat", "trn", "licence", "license"}
 ID_SUFFIX_WORDS = {"id", "code", "no", "number", "ref", "reference"}
 PERSON_WORDS = {"customer", "client", "member", "employee", "student", "patient", "account", "staff"}
 NAME_WORDS = {"name", "fullname", "firstname", "lastname", "surname", "forename", "given", "family", "customer", "client", "person",
@@ -113,7 +114,7 @@ def classify_column(series: pd.Series, name) -> ColumnRole:
         return ColumnRole(name, "ignore", False, "an id of something else (not of the person or company)")
     person_id = tokens & ID_WORDS or (tokens & PERSON_WORDS and tokens & ID_SUFFIX_WORDS)
     if person_id:
-        if _distinct_share(series) >= 0.999:
+        if _distinct_share(series) >= 0.999 and not tokens & PERSON_ID_WORDS:      # (a national id differing is evidence even when all are different)
             return ColumnRole(name, "ignore", False, "an id, but every row has a different one, so it cannot show two rows are the same person")
         return ColumnRole(name, "id", True, f"header '{name}' (an id that repeats on some rows)")
 

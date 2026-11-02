@@ -155,7 +155,14 @@ def compare_names(a: NameKey, b: NameKey) -> tuple:
         return "almost", "spelling variant"
     if sorted(a.tokens) == sorted(b.tokens):
         return "almost", "words in a different order"
-    short, long = (a.tokens, b.tokens) if len(a.tokens) <= len(b.tokens) else (b.tokens, a.tokens)
+    verdict = _compare_aligned(a.tokens, b.tokens)
+    if verdict[0] == "different" and (a.raw_tokens != a.tokens or b.raw_tokens != b.tokens):
+        verdict = _compare_aligned(a.raw_tokens, b.raw_tokens)        # a typo in a word that a spelling-variant group would have hidden
+    return verdict
+
+
+def _compare_aligned(first: list, second: list) -> tuple:
+    short, long = (first, second) if len(first) <= len(second) else (second, first)
     if len(short) == 1 and len(long) == 1:
         relation, why = _token_pair(short[0], long[0])
         return ("almost", f"typo {why}") if relation == "typo" else ("different", "")

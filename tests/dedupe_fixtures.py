@@ -26,7 +26,7 @@ STREETS = ["Main Street", "Park Road", "Garden Avenue", "Station Road", "Lake La
 
 
 RESERVED = {("Ali", "Khan"), ("Sara", "Raza"), ("Omar", "Farooq"), ("Hassan", "Malik"), ("Layla", "Ansari"), ("Karim", "Dar"), ("Rania", "Javed"),
-            ("Imran", "Latif"), ("Nabil", "Chaudhry"), ("Tariq", "Mirza"), ("Bilal", "Tahir"), ("Saad", "Butt"), ("Hira", "Naqvi"),
+            ("Imran", "Latif"), ("Nabil", "Chaudhry"), ("Tariq", "Mirza"), ("Bilal", "Tahir"), ("Saad", "Butt"), ("Hira", "Naqvi"), ("Anwar", "Cheema"), ("Ahmed", "Ali"), ("Ali", "Ahmed"),
             ("Sana", "Chaudhry"), ("Zeeshan", "Chaudhry")}
 
 
@@ -98,15 +98,15 @@ def customers(n: int = 300, seed: int = 7, plants: int = 1):
 
     for _ in range(plants):
         # --- true duplicates -----------------------------------------------------------------------------------------
-        b = special("Ali", "Khan");        d = add(b, **{"Full Name": "ali  khan."});                                     truth.groups.append({"rows": [b, d], "kind": "case_space_punct", "level": "high"})
-        b = special("Sara", "Raza");       d = add(b, Mobile=f"+92 {rows[b]['Mobile'][1:4]} {rows[b]['Mobile'][4:]}", Email=None)
+        b = special("Ali", "Khan");        d = add(b, **{"Full Name": "ali  khan.", "National ID": None, "Company": None});                                     truth.groups.append({"rows": [b, d], "kind": "case_space_punct", "level": "high"})
+        b = special("Sara", "Raza");       d = add(b, Mobile=f"+92 {rows[b]['Mobile'][1:4]} {rows[b]['Mobile'][4:]}", Email=None, **{"National ID": None, "Address": None})
         truth.groups.append({"rows": [b, d], "kind": "phone_format", "level": "high"})
-        b = special("Omar", "Farooq");     d = add(b, Email=rows[b]["Email"].upper(), Mobile=None);                       truth.groups.append({"rows": [b, d], "kind": "email_case", "level": "high"})
-        b = special("Hassan", "Malik");    d = add(b, **{"Full Name": "Hassan Mailk"});                                   truth.groups.append({"rows": [b, d], "kind": "typo", "level": "high"})
-        b = special("Muhammad", "Siddiqui"); d = add(b, **{"Full Name": "Mohammad Siddiqui"});                            truth.groups.append({"rows": [b, d], "kind": "variant", "level": "high"})
-        b = special("Mohamed", "Qureshi"); d = add(b, **{"Full Name": "M. Qureshi"}, Mobile=None);                        truth.groups.append({"rows": [b, d], "kind": "initial", "level": "high"})
-        b = special("Layla", "Ansari");    d = add(b, **{"Full Name": "Ansari, Layla"}, Email=None);                      truth.groups.append({"rows": [b, d], "kind": "word_order", "level": "high"})
-        b = special("Karim", "Dar");       d1 = add(b, **{"Full Name": "KARIM DAR"}, Mobile="+92" + rows[b]["Mobile"][1:]); d2 = add(b, Email=rows[b]["Email"].title())
+        b = special("Omar", "Farooq");     d = add(b, Email=rows[b]["Email"].upper(), Mobile=None, **{"National ID": None, "Company": None});                       truth.groups.append({"rows": [b, d], "kind": "email_case", "level": "high"})
+        b = special("Hassan", "Malik");    d = add(b, **{"Full Name": "Hassan Mailk", "National ID": None, "Company": None, "Address": None});                                   truth.groups.append({"rows": [b, d], "kind": "typo", "level": "high"})
+        b = special("Muhammad", "Siddiqui"); d = add(b, **{"Full Name": "Mohammad Siddiqui", "National ID": None});                            truth.groups.append({"rows": [b, d], "kind": "variant", "level": "high"})
+        b = special("Mohamed", "Qureshi"); d = add(b, **{"Full Name": "M. Qureshi", "National ID": None, "Company": None}, Mobile=None);                        truth.groups.append({"rows": [b, d], "kind": "initial", "level": "high"})
+        b = special("Layla", "Ansari");    d = add(b, **{"Full Name": "Ansari, Layla", "National ID": None, "Address": None}, Email=None);                      truth.groups.append({"rows": [b, d], "kind": "word_order", "level": "high"})
+        b = special("Karim", "Dar");       d1 = add(b, **{"Full Name": "KARIM DAR", "National ID": None}, Mobile="+92" + rows[b]["Mobile"][1:]); d2 = add(b, Email=rows[b]["Email"].title(), Mobile=None, **{"National ID": None, "Company": None})
         truth.groups.append({"rows": [b, d1, d2], "kind": "triple", "level": "high"})
         b = special("Fatima", "Gill");     d = add(b, **{"Full Name": "Fatimah Gill"}, Email=None, Mobile=None, **{"National ID": rows[b]["National ID"]})
         truth.groups.append({"rows": [b, d], "kind": "id_and_variant", "level": "high"})
@@ -115,6 +115,9 @@ def customers(n: int = 300, seed: int = 7, plants: int = 1):
         truth.groups.append({"rows": [b, d], "kind": "name_company_address", "level": "high"})
         b = special("Rania", "Javed");     d = add(b, **{"Full Name": "rania javed"}, Email=None, Mobile=None, **{"National ID": None}, Company=None, Address=None)
         truth.groups.append({"rows": [b, d], "kind": "name_only", "level": "maybe"})
+
+        b = special("Anwar", "Cheema");    d = add(b, Mobile=_phone(rng, phones), **{"National ID": None, "Company": None})
+        truth.groups.append({"rows": [b, d], "kind": "two_phones", "level": "maybe"})
 
         # --- look-alikes that are NOT the same record --------------------------------------------------------------
         b = special("Imran", "Latif")
@@ -131,6 +134,9 @@ def customers(n: int = 300, seed: int = 7, plants: int = 1):
         b = special("Bilal", "Tahir")
         d = add(b, **{"National ID": "11111000000011"})
         truth.lookalikes.append({"rows": [b, d], "kind": "same_name_same_phone_different_id"})
+        b = special("Ahmed", "Ali")
+        d = add(b, **{"Full Name": "Ali Ahmed"}, Email="ali.ahmed.x@gmail.com", Mobile=_phone(rng, phones), **{"National ID": None})
+        truth.lookalikes.append({"rows": [b, d], "kind": "two_people_with_swapped_names"})
         b = special("Saad", "Butt")
         d = add(b, Email="saad.butt.x@gmail.com", Mobile=_phone(rng, phones), **{"National ID": None, "Company": "Another Trading", "Address": "5 Far Street"})
         truth.lookalikes.append({"rows": [b, d], "kind": "same_name_nothing_else_in_common"})
@@ -138,3 +144,46 @@ def customers(n: int = 300, seed: int = 7, plants: int = 1):
     frame = pd.DataFrame(rows)
     frame["Customer ID"] = [f"C{i + 1:05d}" for i in range(len(frame))]
     return frame, truth
+
+
+def inflate(frame: pd.DataFrame, truth: Truth, count: int, seed: int = 3):
+    """Append `count` simple duplicates of random rows (case/spacing, phone format, email case, a name typo, a missing field), each keeping
+    a phone or an email so it is a HIGH duplicate. Returns (frame, truth) - the truth gains one group per duplicate."""
+    rng = random.Random(seed)
+    frame = frame.copy()
+    base_count = len(frame)
+    new_rows, groups = [], []
+    eligible = [i for i in range(base_count) if i not in {r for g in truth.groups for r in g["rows"]}
+                and i not in {r for g in truth.lookalikes for r in g["rows"]}]
+    for k in range(count):
+        position = rng.choice(eligible)
+        row = frame.iloc[position].to_dict()
+        kind = rng.choice(["case", "phone", "email", "typo", "spaces"])
+        name = str(row["Full Name"])
+        if kind == "case":
+            row["Full Name"] = name.upper()
+        elif kind == "phone":
+            digits = str(row["Mobile"])
+            row["Mobile"] = f"+92 {digits[1:4]}-{digits[4:]}"
+            row["Email"] = None
+        elif kind == "email":
+            row["Email"] = str(row["Email"]).upper()
+            row["Mobile"] = None
+        elif kind == "typo":
+            first, last = name.split(" ", 1)
+            row["Full Name"] = f"{first} {last[1] + last[0] + last[2:]}" if len(last) > 3 else name
+        else:
+            row["Full Name"] = f"  {name.replace(' ', '   ')}. "
+        row["National ID"], row["Company"] = None, None
+        row["Signup Date"] = row["Signup Date"] + timedelta(days=rng.randint(1, 100))
+        row["Total Spend"] = round(rng.uniform(20, 5000), 2)
+        new_rows.append(row)
+        groups.append((position, base_count + k, kind))
+    merged_groups = {}                                                 # two duplicates of the same person are ONE group of three
+    for position, new_position, kind in groups:
+        merged_groups.setdefault(position, {"rows": [position], "kind": f"bulk_{kind}", "level": "high"})["rows"].append(new_position)
+    groups = list(merged_groups.values())
+    out = pd.concat([frame, pd.DataFrame(new_rows)], ignore_index=True)
+    out["Customer ID"] = [f"C{i + 1:06d}" for i in range(len(out))]
+    merged = Truth(groups=truth.groups + groups, lookalikes=truth.lookalikes)
+    return out, merged
