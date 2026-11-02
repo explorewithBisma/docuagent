@@ -521,3 +521,20 @@ password-protected workbooks.
 
 Code: `toolkit/` (shared report shapes, ranking, workbook reader, highlighter, screen parts) and `doctor/` (formula reader, evaluator,
 checks, report); the page is `doctor_app.py`.
+
+## Near-duplicates (inside "Clean my file")
+
+Finds rows that are probably the same person or record even though they are not identical ("Ali  KHAN" / "Ali Khan", `0300-1234567` / `+92 300 1234567`, "Mohamed" / "Muhammad"). It only suggests: nothing is removed until you choose.
+
+1. Clean your file, then press **Look for near-duplicates** (section "Near-duplicates", below the AI rules).
+2. The **What I found** card says what kind of file it is (a list of people or transactions), which columns were compared and why, and which were ignored (dates, amounts, quantities, statuses).
+3. Groups are sorted by confidence (High, then Maybe) with the rows side by side; differences are yellow, blanks a merge would fill are purple. For each group choose **Keep all** (default), **Keep one** or **Merge (fill blanks)**, and which row to keep (the most complete is pre-selected).
+4. **Accept all high-confidence groups** sets every High group to Merge. A one-line summary ("3 rows will be removed, 1 blank cells filled") is shown before **Apply**.
+
+What it never does: a name alone is never High; two different strong identifiers (email, phone, id) rule a pair out; a value that is already there is never overwritten when merging.
+
+Output: removed rows go to the **Removed Rows** sheet with the reason, e.g. "Near-duplicate of row 12 (name almost same, phone same)". Cells filled by a merge are purple in the Excel file and listed in the Change Log. Exact duplicates are handled by the existing step as before.
+
+**Edit details**: file type (auto / people / transactions), how sure a match must be, the phone country, the gmail dot rule, the role of every column, and the list of names that count as the same name (`dedupe/name_variants.json`, including Mohamed/Mohammed/Muhammad, Abdullah/Abdallah, Fatima/Fatimah, Yousef/Yusuf, Khalid/Khaled) - edit it in the box, one group per line.
+
+Code: `dedupe/` (`columns` roles, `normalize`, `prepare`, `blocking`, `score`, `groups`, `analyze`, `apply`), `dedupe_panel.py` (the page section). Tests: `tests/test_dedupe_*.py` (ground-truth precision/recall on a synthetic customer list, a 20,000-row timing test, the app flow).

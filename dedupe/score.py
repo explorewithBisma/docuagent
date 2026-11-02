@@ -180,9 +180,16 @@ def score_record_pair(P, i, j, strictness: str = "normal"):
     transaction) and enough columns could be compared at all."""
     a, b = P.records[i], P.records[j]
     columns = len(a)
-    verdicts = [_same_value(x, y) for x, y in zip(a, b)]
+    if columns == 0:
+        return None
+    verdicts = []
+    for x, y in zip(a, b):
+        verdict = _same_value(x, y)
+        if verdict == "different":
+            return None                                            # one differing column makes it another transaction: stop at once
+        verdicts.append(verdict)
     comparable = [v for v in verdicts if v != "blank"]
-    if columns == 0 or len(comparable) < 4 or "different" in verdicts:
+    if len(comparable) < 4:
         return None
     share = len(comparable) / columns
     almost = verdicts.count("almost")
