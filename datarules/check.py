@@ -171,6 +171,26 @@ def _failures(rule: model.Rule, series: pd.Series, day_first: bool, region: str,
     return len(values), sorted(bad, key=lambda b: b[0])
 
 
+FAR_FACTOR = 10                     # a number this many times beyond the biggest limit is not a slip of the pen: it is serious
+
+
+def is_far_outside(rule: model.Rule, value) -> bool:
+    """True for a number that is out of its range by a mile - more than 10 x the largest limit (250,000 when the range is 160 .. 5,440)."""
+    if rule.type != "number_range":
+        return False
+    number = as_number(value)
+    low, high = rule.params.get("min"), rule.params.get("max")
+    if number is None:
+        return False
+    outside = (high is not None and number > high) or (low is not None and number < low)
+    return outside and abs(number) > FAR_FACTOR * max(abs(low or 0), abs(high or 0), 1.0)
+
+
+def severity_of(rule: model.Rule, value=None) -> str:
+    """How serious a broken rule is: the rule's usual level, High when a number is far outside its range."""
+    return "high" if is_far_outside(rule, value) else model.SEVERITY[rule.type]
+
+
 # ---------------------------------------------------------------------------------------------------------------
 # THE CHECK
 # ---------------------------------------------------------------------------------------------------------------
@@ -225,7 +245,11 @@ def check(table: pd.DataFrame, ruleset: model.RuleSet, name: str = "", sheet: st
             locations = [(sheet, f"{letter}{header_row}")]
         else:
             locations = [(sheet, f"{letter}{source_rows[i]}") for i in outcome.failing]
-        issues.append(Issue(f"rule_{rule.type}", model.SEVERITY[rule.type], what,
+        far = [v for _, v, _ in bad if is_far_outside(rule, v)]
+        issue_severity = "high" if far else model.SEVERITY[rule.type]
+        if far:
+            what += f" ({len(far)} far outside the range)"
+        issues.append(Issue(f"rule_{rule.type}", issue_severity, what,
                             f"Rule: {rule.label}{(' - ' + model.setting_text(rule)) if model.setting_text(rule) else ''}. " + (rule.why + "." if rule.why else ""),
                             evidence="; ".join(shown) + (f"; and {len(bad) - EXAMPLES} more" if len(bad) > EXAMPLES else ""), locations=locations, impact=len(bad),
                             fix="Correct these cells in the source and send the file again." if rule.type != "required" else "Fill in the blank cells (rows: "
@@ -233,8 +257,9 @@ def check(table: pd.DataFrame, ruleset: model.RuleSet, name: str = "", sheet: st
                             facts={"rule": rule.id, "column": column, "rows": [source_rows[i] for i in outcome.failing]}))
         for index in (outcome.failing if rule.type != "required" else []):
             why = next((w for r, _, w in outcome.examples if r == source_rows[index]), None)
-            cells.append((model.SEVERITY[rule.type], source_rows[index], column_number[column] + 1,
-                          f"[{model.SEVERITY[rule.type].upper()}] {rule.label}: {rule.column}\n{why or 'breaks the rule'}"))
+            cell_severity = severity_of(rule, series.iloc[index])
+            cells.append((cell_severity, source_rows[index], column_number[column] + 1,
+                          f"[{cell_severity.upper()}] {rule.label}: {rule.column}\n{why or 'breaks the rule'}"))
         if rule.type == "required":
             cells.append((model.SEVERITY[rule.type], header_row, column_number[column] + 1,
                           f"[{model.SEVERITY[rule.type].upper()}] {len(bad)} blank cell(s) in this column (required). Rows: " + ", ".join(str(source_rows[i]) for i in rows[:25]) + (" ..." if len(rows) > 25 else "")))

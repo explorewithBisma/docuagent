@@ -146,3 +146,26 @@ elapsed = time.perf_counter() - started
 print(f"   {len(big):,} rows: {elapsed:.1f} s, {result.status}, {result.counts()}")
 assert elapsed < 20 and result.status == "PASS"                                                         # (clean data, ids made different on purpose)
 print("PASSED")
+
+print("TEST: severity - a number far outside its range (more than 10 x the upper limit) is High; a near miss, a negative, text and other rules keep their usual level")
+rule = model.Rule("a", "Amount", "number_range", {"min": 160, "max": 5440})
+amounts = pd.DataFrame({"Amount": [200, 6000, 250000, 54401, 54400, 100, -99999, "twelve", 5440]})
+table, _ = rc.table_from_raw(to_raw(amounts))
+result = ck.check(table, model.RuleSet(rules=[rule], columns=["Amount"]), "x", "Sheet1")
+by_row = {row: severity for severity, row, _, _ in result.cells}
+print("  ", result.report.issues[0].severity, result.report.issues[0].title, "|", by_row)
+assert [ck.severity_of(rule, v) for v in (6000, 250000, 54401, 54400, 100, -99999, "twelve", 5440)] == ["medium", "high", "high", "medium", "medium", "high", "medium", "medium"]
+assert by_row == {3: "medium", 4: "high", 5: "high", 6: "medium", 7: "medium", 8: "high", 9: "medium"}                      # exactly 10x (54,400) is not "far"; 54,401 is
+issue = result.report.issues[0]
+assert issue.severity == "high" and "(3 far outside the range)" in issue.title                                          # 250,000, 54,401 and -99,999
+only_near = ck.check(rc.table_from_raw(to_raw(pd.DataFrame({"Amount": [200, 6000, 5441]})))[0], model.RuleSet(rules=[rule], columns=["Amount"]), "x", "S")
+assert only_near.report.issues[0].severity == "medium" and "far outside" not in only_near.report.issues[0].title
+frame_, planted_ = fx.problem_month()
+result_, table_ = run(frame_)
+severity = {i.facts["rule"]: i.severity for i in result_.report.issues}
+assert severity["Amount:number_range"] == "high" and severity["Quantity:number_range"] == "high"                      # 99,999 against 523.97; 500 against 10
+assert severity["Customer Email:required"] == "medium" and severity["Status:allowed_values"] == "medium" and severity["Order ID:unique"] == "high"
+assert result_.report.issues[0].severity == "high"
+cells = {(row, column): sev for sev, row, column, _ in result_.cells}
+assert cells[(52, 8)] == "high" and cells[(62, 8)] == "medium" and cells[(67, 8)] == "medium"                            # 99,999 high; -45 and 'twelve' medium
+print("PASSED")

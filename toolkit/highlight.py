@@ -214,7 +214,7 @@ def _insert_legacy_drawing(sheet_xml: str, rid: str) -> str:
 # ---------------------------------------------------------------------------------------------------------------
 # REPORT SHEET
 # ---------------------------------------------------------------------------------------------------------------
-def _report_sheet_xml(rows: list, special: dict, footer: str) -> str:
+def _report_sheet_xml(rows: list, special: dict, footer: str, lead: list = ()) -> str:
     headers = ["#", "Importance", "Where", "What was found", "Why it matters", "Evidence", "Suggested fix"]
 
     def cell(ref, value, style):
@@ -222,21 +222,25 @@ def _report_sheet_xml(rows: list, special: dict, footer: str) -> str:
             return f'<c r="{ref}" s="{style}"><v>{value}</v></c>'
         return f'<c r="{ref}" s="{style}" t="inlineStr"><is><t xml:space="preserve">{escape(clean(value))}</t></is></c>'
 
-    body = '<row r="1">' + "".join(cell(f"{get_column_letter(i)}1", h, special["header"]) for i, h in enumerate(headers, start=1)) + "</row>"
+    # `lead`: lines written above the table (for example the column changes of a monthly check); the first one is a bold title
+    shift = len(lead) + 1 if lead else 0
+    body = "".join(f'<row r="{n}">{cell(f"A{n}", line, special["header"] if n == 1 else 0)}</row>' for n, line in enumerate(lead, start=1))
+    header_row = shift + 1
+    body += f'<row r="{header_row}">' + "".join(cell(f"{get_column_letter(i)}{header_row}", h, special["header"]) for i, h in enumerate(headers, start=1)) + "</row>"
     links = ""
-    for position, row in enumerate(rows, start=2):
+    for position, row in enumerate(rows, start=header_row + 1):
         values = [row.number, row.severity.capitalize(), row.where, row.title, row.detail, row.evidence, row.fix]
         body += f'<row r="{position}">' + "".join(cell(f"{get_column_letter(i)}{position}", v, special["wrap"]) for i, v in enumerate(values, start=1)) + "</row>"
         if row.link:
             sheet, coord = row.link
             location = "'" + sheet.replace("'", "''") + "'!" + coord
             links += f'<hyperlink ref="C{position}" location="{escape(location, {chr(34): "&quot;"})}" display="{escape(clean(row.where), {chr(34): "&quot;"})}"/>'
-    footer_row = len(rows) + 3
+    footer_row = header_row + len(rows) + 2
     body += f'<row r="{footer_row}">{cell(f"A{footer_row}", footer, 0)}</row>'
     widths = (5, 12, 26, 48, 60, 50, 40)
     cols = "".join(f'<col min="{i}" max="{i}" width="{w}" customWidth="1"/>' for i, w in enumerate(widths, start=1))
     return ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
-            f'<worksheet xmlns="{NS_MAIN}" xmlns:r="{NS_R}"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" '
+            f'<worksheet xmlns="{NS_MAIN}" xmlns:r="{NS_R}"><sheetViews><sheetView workbookViewId="0"><pane ySplit="{header_row}" topLeftCell="A{header_row + 1}" '
             'activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/>'
             f'<cols>{cols}</cols><sheetData>{body}</sheetData>' + (f"<hyperlinks>{links}</hyperlinks>" if links else "") + "</worksheet>")
 
@@ -245,11 +249,11 @@ def _report_sheet_xml(rows: list, special: dict, footer: str) -> str:
 # THE PATCH
 # ---------------------------------------------------------------------------------------------------------------
 def patch_workbook(original: bytes, annotations: list, report_rows: list, footer: str = "", sheet_title: str = REPORT_SHEET,
-                   author: str = AUTHOR) -> PatchResult:
+                   author: str = AUTHOR, lead: list = ()) -> PatchResult:
     """Return the highlighted copy (validated). Raises PatchError when it cannot be made safely. `sheet_title` names the report sheet and
-    `author` the notes (each tool uses its own: "Doctor report" / "Rule report")."""
+    `author` the notes (each tool uses its own: "Doctor report" / "Rule report"); `lead` are lines written above the table of findings."""
     try:
-        result = _patch(original, annotations, report_rows, footer, sheet_title, author)
+        result = _patch(original, annotations, report_rows, footer, sheet_title, author, lead)
     except PatchError:
         raise
     except Exception as error:                              # anything unexpected: never hand out a half-made file
@@ -258,7 +262,7 @@ def patch_workbook(original: bytes, annotations: list, report_rows: list, footer
     return result
 
 
-def _patch(original: bytes, annotations: list, report_rows: list, footer: str, sheet_title: str = REPORT_SHEET, author: str = AUTHOR) -> PatchResult:
+def _patch(original: bytes, annotations: list, report_rows: list, footer: str, sheet_title: str = REPORT_SHEET, author: str = AUTHOR, lead: list = ()) -> PatchResult:
     try:
         source = zipfile.ZipFile(io.BytesIO(original))
     except zipfile.BadZipFile:
@@ -362,7 +366,7 @@ def _patch(original: bytes, annotations: list, report_rows: list, footer: str, s
     while title in existing_names:
         title, k = f"{sheet_title} {k}", k + 1
     new_sheet_part = f"xl/worksheets/sheet{_next_number(list(names) + list(added), r'xl/worksheets/sheet(\d+)\.xml$')}.xml"
-    added[new_sheet_part] = _report_sheet_xml(report_rows, special, footer)
+    added[new_sheet_part] = _report_sheet_xml(report_rows, special, footer, lead)
     used = [int(m) for m in re.findall(r'Id="rId(\d+)"', rels_text)]
     rid = f"rId{max(used, default=0) + 1}"
     changed["xl/_rels/workbook.xml.rels"] = rels_text.replace(

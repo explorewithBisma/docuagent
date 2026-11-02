@@ -50,9 +50,25 @@ def report_rows(result) -> list:
     return rows
 
 
+def column_change_lines(result) -> list:
+    """The lines at the top of the Rule report sheet: a title, then what changed in the columns (renamed, missing, new) - or that nothing did."""
+    renamed = [m for m in result.matches if m.actual is not None and m.how != "exact"]
+    missing = [m for m in result.matches if m.actual is None]
+    found = len(result.matches) - len(missing)
+    title = f"Column changes: {found} of {len(result.matches)} expected columns found"
+    if not (renamed or missing or result.extras):
+        return [title, "No changes: every expected column is in the file with the same name, and there are no new columns."]
+    lines = [title + f" - {len(renamed)} renamed, {len(missing)} missing, {len(result.extras)} new"]
+    how = {"reordered": "the same words in another order", "similar": "a very similar name"}
+    lines += [f"Renamed: '{m.expected}' is '{m.actual}' ({how.get(m.how, m.how)}); its rules were applied to it" for m in renamed]
+    lines += [f"Missing: '{m.expected}' is not in the file; its rules were skipped" for m in missing]
+    lines += [f"New: '{c}' is in the file but no rule mentions it (not checked)" for c in result.extras]
+    return lines
+
+
 def make_highlighted(original: bytes, result, sheet: str) -> PatchResult:
     """The validated highlighted copy of `original` (an .xlsx). Raises PatchError (with a message for the user) when it cannot be made safely."""
-    return patch_workbook(original, annotations(result, sheet), report_rows(result), FOOTER, SHEET_TITLE, AUTHOR)
+    return patch_workbook(original, annotations(result, sheet), report_rows(result), FOOTER, SHEET_TITLE, AUTHOR, column_change_lines(result))
 
 
 def report_text(result, file_name: str = "", rules_name: str = "") -> str:

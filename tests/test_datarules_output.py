@@ -42,6 +42,13 @@ def checked(data, sheet="Orders"):
     return ck.check(table, RULES, "may.xlsx", sheet), table
 
 
+def report_parts(ws):
+    """(the lines above the table, the row of the table's header, the rows below it) of a 'Rule report' sheet."""
+    values = [[c.value for c in row] for row in ws.iter_rows()]
+    header = next(i for i, row in enumerate(values) if row[:2] == ["#", "Importance"])
+    return [row[0] for row in values[:header] if row[0]], header + 1, values[header + 1:]
+
+
 def cells_of(book):
     return {(ws.title, c.coordinate): c.value for ws in book.worksheets for row in ws.iter_rows() for c in row if c.value is not None}
 
@@ -66,8 +73,10 @@ for title_rows in (0, 3):
     clean_cell = ws.cell(row=first + 2, column=8)
     assert clean_cell.comment is None
     report = after["Rule report"]
-    assert [c.value for c in report[1]][:4] == ["#", "Importance", "Where", "What was found"]
-    titles = [report.cell(row=r, column=4).value for r in range(2, report.max_row)]
+    lead, header_row, body = report_parts(report)
+    assert lead[0] == "Column changes: 9 of 9 expected columns found" and "No changes" in lead[1]                  # the column changes are the first thing on the sheet
+    assert [c.value for c in report[header_row]][:4] == ["#", "Importance", "Where", "What was found"]
+    titles = [row[3] for row in body]
     assert any("values in 'Amount'" in str(t) for t in titles) and any("duplicate value" in str(t) for t in titles)
     assert copy.highlighted == 14 and copy.notes == 14        # 13 cells that broke a rule + the header that carries the blank cells
     assert "No value in your file was changed" in " ".join(str(c.value) for row in report.iter_rows() for c in row if c.value)
@@ -88,7 +97,8 @@ result, _ = checked(data)
 assert result.status == "PASS"
 copy = out.make_highlighted(data, result, "Orders")
 report = openpyxl.load_workbook(io.BytesIO(copy.data))["Rule report"]
-assert report.cell(row=2, column=4).value == "All 17 rules passed" and copy.highlighted == 0
+lead, header_row, body = report_parts(report)
+assert body[0][3] == "All 17 rules passed" and copy.highlighted == 0 and lead[0].startswith("Column changes: 9 of 9")
 print("PASSED")
 
 print("TEST: a CSV is turned into a workbook first (title lines, header and data keep their rows and columns), then highlighted the same way")
@@ -122,4 +132,25 @@ text = out.report_text(result, "may.xlsx")
 for expected in ("RESULT: FAIL", "PLEASE CHECK", "values in 'Amount'", "EVERY RULE", "FAIL     Must not be blank on 'Customer Email'", "FAIL     Number between on 'Quantity'",
                  "never changes your data"):
     assert expected in text, expected
+print("PASSED")
+
+print("TEST: column changes are listed at the top of the Rule report sheet - renamed, missing and new columns, each with what it means")
+changed = frame.rename(columns={"Amount": "Amount (PKR)", "Customer Email": "email customer"}).drop(columns=["Phone"]).assign(Comment="x")
+data = xlsx_of(changed)
+result, _ = checked(data)
+copy = out.make_highlighted(data, result, "Orders")
+report = openpyxl.load_workbook(io.BytesIO(copy.data))["Rule report"]
+lead, header_row, body = report_parts(report)
+print("  ", lead)
+assert lead == [
+    "Column changes: 8 of 9 expected columns found - 2 renamed, 1 missing, 1 new",
+    "Renamed: 'Customer Email' is 'email customer' (the same words in another order); its rules were applied to it",
+    "Renamed: 'Amount' is 'Amount (PKR)' (a very similar name); its rules were applied to it",
+    "Missing: 'Phone' is not in the file; its rules were skipped",
+    "New: 'Comment' is in the file but no rule mentions it (not checked)"]
+assert header_row == len(lead) + 2                           # a blank line between the lines and the table
+assert report["A1"].font.bold and report.freeze_panes == f"A{header_row + 1}"                                                  # the table header stays visible when scrolling
+assert [row[3] for row in body][0] and body[0][0] == 1                                                                      # the numbered findings follow
+link = next(c for row in report.iter_rows(min_row=header_row + 1) for c in row if c.hyperlink)
+assert link.hyperlink.location.startswith("'Orders'!")                                                                      # links still reach the cell
 print("PASSED")

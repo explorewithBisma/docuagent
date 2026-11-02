@@ -613,9 +613,9 @@ then download the **rules file (.json)**. A column with nothing a normal month m
 
 **2. Every month: upload the rules file and the new file.** You get
 - a **PASS / FAIL** line and a "What I found" card (rows checked, rules passed and failed, which columns were found, renamed, missing or new);
-- a **Please check** list, worst first (a missing column or a duplicate id, then the rules with the most broken cells), each with examples and the Excel row numbers;
+- a **Please check** list, worst first (a missing column or a duplicate id, a number more than 10 x beyond its range, then the other rules with the most broken cells), each with examples and the Excel row numbers;
 - a **highlighted copy** of the file (the cells that broke a rule coloured with a note, a blank-cell problem marked on the column header, and a **Rule report** sheet at the end;
-  made and verified by the same engine as Excel Doctor's copy: no value changes) and a **text report**.
+  made and verified by the same engine as Excel Doctor's copy: no value changes; the **column changes** - renamed, missing and new columns - are listed at the top of that sheet) and a **text report**.
 
 **Columns are matched by name, gracefully.** The same name in other capitals, the same words in another order (`email customer`), or a very similar name
 (`Amount` -> `Amount (AED)`) is accepted and reported; a missing column fails the check and its rules are skipped with a note; extra columns are listed as new.
