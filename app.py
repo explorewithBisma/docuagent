@@ -44,6 +44,7 @@ from report import (
     render_quality_panel, render_summary_panel, styled_preview, summary_metrics, totals_by_reason,
 )
 from locales import LOCALES, DEFAULT_LOCALE
+import dedupe_panel
 from quality import (
     DEFAULT_PLACEHOLDERS, casefolded_values, columns_with_inconsistent_casing, parse_placeholder_text, profile_dataframe,
 )
@@ -626,6 +627,16 @@ if st.session_state.cleaned_sheets is not None:
                     mime="application/json",
                     key="download_recipe_ai_panel",
                 )
+
+    # --- Near-duplicates (everything lives in dedupe_panel.py) ---
+    def after_near_duplicates():
+        sheets = st.session_state.cleaned_sheets
+        st.session_state.report_text = build_report_text(
+            st.session_state.original_filename, st.session_state.sheet_stats, st.session_state.rule_outcomes_by_sheet,
+            build_quality(sheets, st.session_state.sheet_stats, st.session_state.quality_before, placeholders_in_effect),
+            removed_rows_by_sheet(st.session_state.change_logs))
+        bump_data_version()
+    dedupe_panel.render(st.session_state.cleaned_sheets, st.session_state.change_logs, locale_code, after_near_duplicates)
 
     # "Apply Approved Rules" above may have just replaced st.session_state.
     # cleaned_sheets - re-read it so everything below (the cards, tabs and
