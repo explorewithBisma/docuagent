@@ -64,10 +64,12 @@ assert "I never change your numbers" in text
 print("PASSED")
 
 print("TEST: the Please-check list is in order of importance, nothing hidden, each with evidence")
-markdown = [m.value for m in at.markdown if m.value.startswith(("🔴", "🟠", "🔵"))]
+import re
+pill_start = re.compile(r'^<span class="pill pill-(high|medium|low)">')
+markdown = [m.value for m in at.markdown if pill_start.match(m.value)]                       # every finding starts with its importance pill (red / amber / blue)
 assert len(markdown) == 11, len(markdown)
-icons = [m[0] for m in markdown]
-assert icons == sorted(icons, key=["🔴", "🟠", "🔵"].index) and markdown[0].startswith("🔴 **'(-) Total Expenses This Month' says 11,755")
+levels = [pill_start.match(m).group(1) for m in markdown]
+assert levels == sorted(levels, key=["high", "medium", "low"].index) and levels[0] == "high" and "**'(-) Total Expenses This Month' says 11,755" in markdown[0]
 assert any(e.label.endswith("more") for e in at.expander), "the ninth finding is in the 'more' expander, not dropped"
 codes = [c.value for c in at.code]
 assert any("=C15-#REF!" in c for c in codes) and any("SUMIF(" in c for c in codes)

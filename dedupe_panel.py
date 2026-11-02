@@ -22,8 +22,8 @@ RULE_LABELS = {ap.KEEP: "Keep the kept row's value (fill blanks)", ap.SUM: "Add 
 ROLE_CHOICES = ["(automatic)", "name", "email", "phone", "id", "company", "address", "dob", "place", "ignore"]
 KIND_CHOICES = {"Detect automatically": "auto", "A list of people or companies": "contacts", "A list of transactions": "transactions"}
 STRICTNESS = {"Careful - fewer, surer matches": "strict", "Normal": "normal", "Loose - also lone typos": "loose"}
-DIFF_COLOR = "background-color: #FFE699"
-FILL_COLOR = "background-color: #E4DFEC"
+DIFF_COLOR = "background-color: #FFE699; color: #1f1f1f"
+FILL_COLOR = "background-color: #E4DFEC; color: #1f1f1f"
 
 
 def _sheets_available(cleaned_sheets: dict, change_logs: dict) -> list:

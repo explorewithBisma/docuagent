@@ -136,6 +136,8 @@ def collect_unique_approved_rules(suggested_rules_by_sheet: dict) -> list:
 st.set_page_config(page_title="Excel Cleaner", page_icon="🧹", layout="wide")
 
 # --- Header ---
+if st.session_state.get("_started_from_main") and st.button("← Back to start", key="back_to_start"):      # (only inside the five-tool app, not when run alone)
+    st.switch_page("main.py")
 st.title("🧹 Excel & CSV Cleaner")
 st.caption("Upload a messy spreadsheet, see exactly what changed, and download a clean, color-coded file.")
 

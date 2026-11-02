@@ -24,9 +24,8 @@ print("TEST: the start screen shows all five tasks with their one-line descripti
 at = start()
 assert [s.value for s in at.subheader] == ["🧹 Clean my file", "🩺 Check my file", "🔗 Match two files", "💰 Build my budget", "✅ Check every month"]
 buttons = {b.key: b for b in at.button}
-assert buttons["start_cleaner"].label == "Clean my file" and buttons["start_check"].label == "Check my file"
-assert buttons["start_budget"].label == "Build my budget"
-assert buttons["start_monthly"].label == "Check every month" and buttons["start_match"].label == "Match two files"
+assert all(buttons[k].label == "Open" for k in ("start_cleaner", "start_check", "start_match", "start_budget", "start_monthly"))       # every card has an "Open" button
+assert {"hero_clean", "hero_match"} <= set(buttons) and buttons["hero_clean"].label == "Clean a file" and buttons["hero_match"].label == "Match two files"
 for key in ("start_cleaner", "start_check", "start_match", "start_budget", "start_monthly"):
     assert buttons[key].proto.disabled is False
 text = " ".join(m.value for m in at.markdown)
@@ -37,7 +36,7 @@ print("TEST: SHOW_UNFINISHED_FEATURES = False hides the cards that are not built
 with mock.patch.object(config, "SHOW_UNFINISHED_FEATURES", False):
     at = start()
 assert [s.value for s in at.subheader] == ["🧹 Clean my file", "🩺 Check my file", "🔗 Match two files", "💰 Build my budget", "✅ Check every month"]
-assert {b.key for b in at.button} == {"start_cleaner", "start_check", "start_match", "start_budget", "start_monthly"}
+assert {b.key for b in at.button} == {"start_cleaner", "start_check", "start_match", "start_budget", "start_monthly", "hero_clean", "hero_match"}
 print("PASSED")
 
 print("TEST: 'Clean my file' opens the unchanged cleaner")
@@ -66,10 +65,10 @@ assert any("budget" in t.value.lower() for t in at.title) and any(b.key == "back
 print("PASSED")
 
 print("TEST: app.py only changed for the approved near-duplicate hook (the cleaner and its tests are otherwise untouched)")
-diff = subprocess.run(["git", "diff", "-U0", "65a059f", "--", "app.py"], cwd=ROOT, capture_output=True, text=True).stdout
+diff = subprocess.run(["git", "diff", "-U0", "65a059f", "--", "app.py"], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
 removed = [l for l in diff.splitlines() if l.startswith("-") and not l.startswith("---")]
 added = [l for l in diff.splitlines() if l.startswith("+") and not l.startswith("+++")]
-# only the removed-rows caption (counts near-duplicates) and the AI button (switched off without an API key) may be rewritten; everything else is added lines
+# only the removed-rows caption (counts near-duplicates) and the AI button (switched off without an API key) may be rewritten; everything else is added lines (the dedupe hook, the Back-to-start button)
 assert len(removed) <= 3 and all("duplicate" in l or "fully empty" in l or "Suggest Cleaning Rules" in l for l in removed), removed      # the caption, and the AI button (now off without a key)
 assert len(added) <= 40, len(added)                  # the approved hook is about ten lines, plus the caption
 print("PASSED")

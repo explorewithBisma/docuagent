@@ -7,10 +7,24 @@ how sure the tool is), the "Please check" list (most important first), and the r
 
 import streamlit as st
 
-BADGE = {"high": "🟢 sure", "medium": "🟡 probably", "low": "🔴 guess"}
+from theme import pill
+
+BADGE = {"high": "🟢 sure", "medium": "🟡 probably", "low": "🔴 guess"}                  # the words and emoji; shown as coloured pills (assets/theme.css)
+BADGE_KIND = {"high": "sure", "medium": "probably", "low": "guess"}
 SEVERITY_ICON = {"high": "🔴", "medium": "🟠", "low": "🔵"}
+SEVERITY_PILL = {"high": "High", "medium": "Medium", "low": "Low"}
 SEVERITY_WORD = {"high": "serious", "medium": "worth checking", "low": "small"}
 SHOWN = 8
+
+
+def confidence_pill(confidence: str) -> str:
+    """HTML for 'sure / probably / guess' as a coloured pill ('' for an unknown level)."""
+    return pill(BADGE[confidence], BADGE_KIND[confidence]) if confidence in BADGE else ""
+
+
+def severity_pill(severity: str) -> str:
+    """HTML for 'High / Medium / Low' as a coloured pill (red / amber / blue)."""
+    return pill(SEVERITY_PILL[severity], severity)
 
 
 def reset_on_new_file(file_id: str, keys) -> bool:
@@ -30,7 +44,7 @@ def render_card(report, title: str = "What I found", summary: str = None):
         for fact in report.facts:
             left, middle = st.columns([2, 5])
             left.markdown(f"**{fact.label}**")
-            middle.markdown(f"{fact.value} &nbsp; {BADGE.get(fact.confidence, '')}")
+            middle.markdown(f"{fact.value} &nbsp; {confidence_pill(fact.confidence)}", unsafe_allow_html=True)
             middle.caption(f"from {fact.source}")
         counts = report.counts()
         if report.issues:
@@ -45,7 +59,7 @@ def render_card(report, title: str = "What I found", summary: str = None):
 
 
 def _issue(issue):
-    st.markdown(f"{SEVERITY_ICON[issue.severity]} **{issue.title}**")
+    st.markdown(f"{severity_pill(issue.severity)} &nbsp; **{issue.title}**", unsafe_allow_html=True)
     st.caption(issue.detail)
     if issue.where:
         st.caption(f"Where: {issue.where}")

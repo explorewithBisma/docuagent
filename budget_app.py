@@ -27,11 +27,11 @@ from budget import ai_categories, autopilot, carryover, categorize, importer, pr
 from budget.model import MAX_CATEGORIES, TX_COLUMNS, TYPES, BudgetConfig
 from budget.workbook import build_workbook
 from locales import DEFAULT_LOCALE, LOCALES
+from toolkit.ui import confidence_pill
 
 CURRENCIES = ["$", "€", "£", "AED", "Rs", "₹", "SAR", "Other..."]
 ROLE_LABELS = {"date": "Date", "description": "Description", "amount": "Amount", "category": "Category",
                "type": "Type", "payment": "Payment method", "debit": "Debit (money out)", "credit": "Credit (money in)"}
-BADGE = {"high": "🟢 sure", "medium": "🟡 probably", "low": "🔴 guess"}
 CHECKS_SHOWN = 8
 STATE_KEYS = ("bd_sid", "bd_import_key", "bd_rows", "bd_dropped", "bd_kmap", "bd_ver", "bd_output", "bd_output_name",
               "bd_message", "bd_analysis", "bd_edit_open", "bd_build_now")
@@ -202,7 +202,7 @@ def render_card(current) -> bool:
         for label, value, source, confidence in autopilot.summary_lines(current):
             left, middle = st.columns([2, 5])
             left.markdown(f"**{label}**")
-            middle.markdown(f"{value} &nbsp; {BADGE[confidence]}")
+            middle.markdown(f"{value} &nbsp; {confidence_pill(confidence)}", unsafe_allow_html=True)
             middle.caption(f"from {source}")
         difference = current.closing_difference
         if current.statement is not None and current.statement_check is not None:

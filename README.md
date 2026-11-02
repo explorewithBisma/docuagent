@@ -13,6 +13,8 @@ Five simple tools for spreadsheets, in one browser app: upload a file, get a bet
 | 💰 | **Build my budget** | a bank statement, a messy budget, or nothing | a clean budget workbook with a dashboard made of formulas; opening/closing balance checked |
 | ✅ | **Check every month** | a clean sample once; then each month's file | pass/fail against simple rules, worst problems first, a highlighted copy |
 
+**Look and feel.** A dark theme (black, bottle green `#0F5132`, emerald `#10B981`) set in `.streamlit/config.toml` and `assets/theme.css` (colours are variables at the top of that file; text passes WCAG AA, and `tests/test_theme.py` checks it). The generated Excel files keep their own light, print-friendly colours.
+
 **Screenshots** *(placeholders - add your own in `docs/screenshots/`)*
 
 | Start screen | Clean my file | Check my file |
