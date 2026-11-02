@@ -9,7 +9,7 @@ The start screen offers five simple tasks. Each one is a file in, a better file 
   Check my file        - Excel Doctor (doctor_app.py)
   Match two files      - reconciliation of two files (match_app.py)
   Build my budget      - the budget builder (budget_app.py)
-  Check every month    - coming soon
+  Check every month    - data rules checked on every month's file (monthly_app.py)
 
 Tools that are not built yet are shown greyed out with "Coming soon". To hide them (for example before sharing the public link) set
 SHOW_UNFINISHED_FEATURES = False in config.py.
@@ -54,7 +54,8 @@ start_page = st.Page(start_screen, title="Start", icon="🏠", default=True, url
 cleaner_page = st.Page("app.py", title="Clean my file", icon="🧹", url_path="cleaner")
 check_page = st.Page("doctor_app.py", title="Check my file", icon="🩺", url_path="check")
 match_page = st.Page("match_app.py", title="Match two files", icon="🔗", url_path="match")
+monthly_page = st.Page("monthly_app.py", title="Check every month", icon="✅", url_path="monthly")
 budget_page = st.Page("budget_app.py", title="Build my budget", icon="💰", url_path="budget")
-PAGES = {"cleaner": cleaner_page, "check": check_page, "match": match_page, "budget": budget_page, "monthly": None}
+PAGES = {"cleaner": cleaner_page, "check": check_page, "match": match_page, "budget": budget_page, "monthly": monthly_page}
 
-st.navigation([start_page, cleaner_page, check_page, match_page, budget_page], position="hidden").run()
+st.navigation([start_page, cleaner_page, check_page, match_page, budget_page, monthly_page], position="hidden").run()

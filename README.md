@@ -495,8 +495,7 @@ columns).
 ## The start screen and "Check my file"
 
 `streamlit run main.py` opens a start screen with five tasks: **Clean my file**, **Check my file**, **Match two files**,
-**Build my budget** and **Check every month**. The one that is not built yet (*Check every
-month*) is greyed out with "Coming soon"; set `SHOW_UNFINISHED_FEATURES = False` in `config.py` to hide them (for example before
+**Build my budget** and **Check every month**. All five tasks are built. A task that is not built would be greyed out with "Coming soon"; set `SHOW_UNFINISHED_FEATURES = False` in `config.py` to hide them (for example before
 sharing the public link).
 
 **Check my file** (Excel Doctor) reads a workbook and reports, in plain language:
@@ -596,3 +595,31 @@ the payment method (Card, Cash withdrawal, Cheque, Bank transfer).
 
 A statement without a balance column still works through the normal flow (credits = Income, debits = Expenses, keyword Types), only without the balance-based
 opening balance and closing-balance check. Code: `budget/statement.py`; tests: `tests/test_statement_budget.py`, `tests/test_statement_app.py`.
+
+## Check every month (data rules)
+
+Set a few simple rules **once** from a clean sample file; every month, check the new file against them. The data is never changed and nothing is stored.
+
+**1. Make rules from a clean sample file.** Upload the sample (CSV or .xlsx). For every column, rules are suggested with the evidence they rest on:
+- *Must not be blank* - when the sample had no blanks;
+- *Only these values* - a text column with a few repeated values (status, region ...), when it is nearly always filled;
+- *Number between* - the sample's lowest and highest value widened by a 10% margin (never below 0 when the sample had no negatives; whole numbers stay whole);
+- *Dates* - the sample's span in days plus 25%, so next month's dates still fit (you can change it to a fixed range: `2026-05-01 .. 2026-05-31`);
+- *Valid email address* / *Valid phone number* (read for the chosen country);
+- *Every value different* - an id column where all values were different;
+- *Expected columns are present* - the sample's columns.
+You tick the rules you want and edit the **Setting** of each in a simple table (`Paid | Pending` for allowed values, `0 .. 250` for a range, `within 40 days`),
+then download the **rules file (.json)**. A column with nothing a normal month must follow (free text, mostly blank) gets no rule.
+
+**2. Every month: upload the rules file and the new file.** You get
+- a **PASS / FAIL** line and a "What I found" card (rows checked, rules passed and failed, which columns were found, renamed, missing or new);
+- a **Please check** list, worst first (a missing column or a duplicate id, then the rules with the most broken cells), each with examples and the Excel row numbers;
+- a **highlighted copy** of the file (the cells that broke a rule coloured with a note, a blank-cell problem marked on the column header, and a **Rule report** sheet at the end;
+  made and verified by the same engine as Excel Doctor's copy: no value changes) and a **text report**.
+
+**Columns are matched by name, gracefully.** The same name in other capitals, the same words in another order (`email customer`), or a very similar name
+(`Amount` -> `Amount (AED)`) is accepted and reported; a missing column fails the check and its rules are skipped with a note; extra columns are listed as new.
+Switch similar-name matching off under Edit details to treat a renamed column as missing.
+
+Code: `datarules/` (`model` the rules file, `suggest`, `check`, `output`) and `monthly_app.py` (the page). Tests: `tests/test_datarules_*.py` (suggestions, the file, ground-truth
+checks on planted problems, the highlighted copy, and the page flow).

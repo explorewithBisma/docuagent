@@ -20,25 +20,24 @@ def start():
     return at
 
 
-print("TEST: the start screen shows all five tasks with their one-line descriptions; unfinished ones are disabled 'Coming soon'")
+print("TEST: the start screen shows all five tasks with their one-line descriptions; an unfinished one would be disabled 'Coming soon'")
 at = start()
 assert [s.value for s in at.subheader] == ["🧹 Clean my file", "🩺 Check my file", "🔗 Match two files", "💰 Build my budget", "✅ Check every month"]
 buttons = {b.key: b for b in at.button}
 assert buttons["start_cleaner"].label == "Clean my file" and buttons["start_check"].label == "Check my file"
 assert buttons["start_budget"].label == "Build my budget"
-assert buttons["start_monthly"].label == "Coming soon" and buttons["start_monthly"].proto.disabled is True
-assert buttons["start_match"].label == "Match two files"
-for key in ("start_cleaner", "start_check", "start_match", "start_budget"):
+assert buttons["start_monthly"].label == "Check every month" and buttons["start_match"].label == "Match two files"
+for key in ("start_cleaner", "start_check", "start_match", "start_budget", "start_monthly"):
     assert buttons[key].proto.disabled is False
 text = " ".join(m.value for m in at.markdown)
 assert "Compare a bank statement with your records" in text and "Find typed-in totals, broken formulas" in text
 print("PASSED")
 
-print("TEST: SHOW_UNFINISHED_FEATURES = False hides the cards that are not built yet")
+print("TEST: SHOW_UNFINISHED_FEATURES = False hides the cards that are not built yet (all five are built now, so nothing is hidden)")
 with mock.patch.object(config, "SHOW_UNFINISHED_FEATURES", False):
     at = start()
-assert [s.value for s in at.subheader] == ["🧹 Clean my file", "🩺 Check my file", "🔗 Match two files", "💰 Build my budget"]
-assert {b.key for b in at.button} == {"start_cleaner", "start_check", "start_match", "start_budget"}
+assert [s.value for s in at.subheader] == ["🧹 Clean my file", "🩺 Check my file", "🔗 Match two files", "💰 Build my budget", "✅ Check every month"]
+assert {b.key for b in at.button} == {"start_cleaner", "start_check", "start_match", "start_budget", "start_monthly"}
 print("PASSED")
 
 print("TEST: 'Clean my file' opens the unchanged cleaner")
@@ -81,4 +80,12 @@ next(b for b in at.button if b.key == "start_match").click()
 at.run()
 assert not at.exception, [e.value for e in at.exception]
 assert any("Match two files" in t.value for t in at.title) and any(b.key == "back_to_start" for b in at.button)
+print("PASSED")
+
+print("TEST: 'Check every month' opens the monthly checker, which links back to the start screen")
+at = start()
+next(b for b in at.button if b.key == "start_monthly").click()
+at.run()
+assert not at.exception, [e.value for e in at.exception]
+assert any("Check every month" in t.value for t in at.title) and any(b.key == "back_to_start" for b in at.button)
 print("PASSED")
