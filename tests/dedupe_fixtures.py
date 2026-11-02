@@ -59,9 +59,15 @@ def _phone(rng: random.Random, taken: set) -> str:
             return number
 
 
-def customers(n: int = 300, seed: int = 7, plants: int = 1):
-    """n base customers (+ planted duplicates and look-alikes, `plants` times the standard set). Returns (DataFrame, Truth)."""
+DOB_RESERVED = {("Zainab", "Usmani"), ("Nour", "Gill"), ("Kamran", "Abbasi"), ("Uzma", "Baig"), ("Waqar", "Virk"), ("Maryam", "Zaidi"), ("Jamal", "Dar")}
+
+
+def customers(n: int = 300, seed: int = 7, plants: int = 1, with_dob: bool = False):
+    """n base customers (+ planted duplicates and look-alikes, `plants` times the standard set). Returns (DataFrame, Truth).
+    with_dob adds "Date of Birth" and "Postcode" columns and the plants that rest on them (the default list is unchanged)."""
     rng = random.Random(seed)
+    dob_rng = random.Random(seed + 1)                              # a separate stream: the default list is the same with or without it
+    reserved = RESERVED | DOB_RESERVED if with_dob else RESERVED
     phones, ids, emails = set(), set(), set()
 
     def person(first, last, key):
@@ -72,13 +78,15 @@ def customers(n: int = 300, seed: int = 7, plants: int = 1):
         return {"Customer ID": None, "Full Name": f"{first} {last}", "Email": email, "Mobile": _phone(rng, phones), "National ID": national,
                 "Company": rng.choice(COMPANIES), "Address": f"{rng.randint(1, 99)} {rng.choice(STREETS)}", "City": rng.choice(CITIES),
                 "Signup Date": date(2023, 1, 1) + timedelta(days=rng.randint(0, 900)), "Total Spend": round(rng.uniform(20, 5000), 2),
-                "Status": rng.choice(["Active", "Active", "Active", "Dormant", "VIP"])}
+                "Status": rng.choice(["Active", "Active", "Active", "Dormant", "VIP"]),
+                **({"Date of Birth": (date(1950, 1, 1) + timedelta(days=dob_rng.randint(0, 20000))).isoformat(),
+                    "Postcode": str(dob_rng.randint(10000, 99999))} if with_dob else {})}
 
     rows = []
     for i in range(n):
         while True:                                                    # random people never share a name with a planted one
             first, last = rng.choice(FIRSTS), rng.choice(LASTS)
-            if (first, last) not in RESERVED:
+            if (first, last) not in reserved:
                 break
         rows.append(person(first, last, i))
     truth = Truth()
@@ -140,6 +148,25 @@ def customers(n: int = 300, seed: int = 7, plants: int = 1):
         b = special("Saad", "Butt")
         d = add(b, Email="saad.butt.x@gmail.com", Mobile=_phone(rng, phones), **{"National ID": None, "Company": "Another Trading", "Address": "5 Far Street"})
         truth.lookalikes.append({"rows": [b, d], "kind": "same_name_nothing_else_in_common"})
+
+        if with_dob:
+            # --- a date of birth is the only thing that confirms these (a Maybe, never a High) ---------------------------
+            nothing = dict(Email=None, Mobile=None, Company=None, Address=None, **{"National ID": None})
+            b = special("Zainab", "Usmani"); d = add(b, **{"Full Name": "Zainab Usmnai"}, **nothing)
+            truth.groups.append({"rows": [b, d], "kind": "dob_name_typo", "level": "maybe"})
+            b = special("Nour", "Gill");     d = add(b, **{"Full Name": None}, **nothing)
+            truth.groups.append({"rows": [b, d], "kind": "dob_postcode_no_name", "level": "maybe"})
+            # --- look-alikes -------------------------------------------------------------------------------------------
+            b = special("Kamran", "Abbasi"); d = add(b, **{"Full Name": "Uzma Baig"}, **nothing)
+            truth.lookalikes.append({"rows": [b, d], "kind": "same_birthday_same_postcode_different_people"})
+            b = special("Waqar", "Virk")
+            d = add(b, **nothing, **{"Date of Birth": "1999-09-09", "Postcode": "11111"})
+            truth.lookalikes.append({"rows": [b, d], "kind": "same_name_different_birthday"})
+            b = special("Maryam", "Zaidi"); d = add(b, **{"Full Name": None}, **nothing, **{"Postcode": "22222"})
+            truth.lookalikes.append({"rows": [b, d], "kind": "same_birthday_no_name_other_postcode"})
+            b = special("Jamal", "Dar");     d = add(b, **{"Full Name": "Jamal Dar"}, Email="jamal.other@gmail.com", Mobile=_phone(rng, phones),
+                                                       **{"National ID": None, "Date of Birth": "1960-06-06"})
+            truth.lookalikes.append({"rows": [b, d], "kind": "same_name_other_phone_other_birthday"})
 
     frame = pd.DataFrame(rows)
     frame["Customer ID"] = [f"C{i + 1:05d}" for i in range(len(frame))]

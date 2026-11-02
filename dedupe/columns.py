@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
+from dedupe import normalize as nz
 from quality import _name_words, is_blank, is_phone_like
 
 STRONG_ROLES = ("email", "phone", "id")
@@ -34,6 +35,8 @@ NAME_WORDS = {"name", "fullname", "firstname", "lastname", "surname", "forename"
 NAME_PARTS = {"first": 0, "given": 0, "forename": 0, "middle": 1, "last": 2, "surname": 2, "family": 2}
 COMPANY_WORDS = {"company", "organisation", "organization", "employer", "business", "firm", "supplier", "vendor", "merchant"}
 ADDRESS_WORDS = {"address", "street", "addr"}
+DOB_WORDS = {"dob", "birthdate", "birthday", "born", "birth"}
+PLACE_WORDS = {"postcode", "postal", "zip", "zipcode", "pincode", "suburb", "city", "town", "locality"}
 NOT_A_NAME = {"product", "item", "file", "sheet", "user", "username", "category", "type", "status", "product_name", "brand", "city", "country"}
 DATE_TEXT = re.compile(r"^\s*(\d{1,4}[/\-.]\d{1,2}[/\-.]\d{1,4}|\d{1,2}\s+[A-Za-z]{3,9}\s+\d{2,4}|[A-Za-z]{3,9}\s+\d{1,2},?\s+\d{2,4})([ T]\d{1,2}:\d{2}.*)?\s*$")
 
@@ -41,7 +44,7 @@ DATE_TEXT = re.compile(r"^\s*(\d{1,4}[/\-.]\d{1,2}[/\-.]\d{1,4}|\d{1,2}\s+[A-Za-
 @dataclass
 class ColumnRole:
     column: str
-    role: str                       # name | email | phone | id | company | address | record | ignore
+    role: str                       # name | email | phone | id | company | address | dob | place | record | ignore
     used: bool
     why: str
     order: int = 0                  # position of a name part (first, middle, last)
@@ -101,6 +104,10 @@ def classify_column(series: pd.Series, name) -> ColumnRole:
     if n_rows == 0:
         return ColumnRole(name, "ignore", False, "empty column")
 
+    # --- date of birth: the header says so AND the values are plausible dates (never guessed from the values alone) ----
+    if tokens & DOB_WORDS and values and _share(values, lambda v: nz.norm_dob(v) != "") >= 0.7:
+        return ColumnRole(name, "dob", True, f"header '{name}' and the values are dates (used only to confirm a match, never alone)")
+
     # --- identity columns: the header says so, or the values do ------------------------------------------------------
     if tokens & EMAIL_WORDS or (values and _share(values, lambda v: isinstance(v, str) and "@" in v and " " not in v.strip()) >= 0.6):
         return ColumnRole(name, "email", True, f"header '{name}'" if tokens & EMAIL_WORDS else "most values look like email addresses")
@@ -124,6 +131,10 @@ def classify_column(series: pd.Series, name) -> ColumnRole:
         return ColumnRole(name, "company", True, f"header '{name}'")
     if tokens & ADDRESS_WORDS and texty:
         return ColumnRole(name, "address", True, f"header '{name}'")
+    if (tokens & PLACE_WORDS or {"post", "code"} <= tokens) and not tokens & {"id", "name"}:
+        coarse = bool(tokens & {"city", "town"})
+        return ColumnRole(name, "place", True, f"header '{name}' (weak evidence: many different people share a {'city' if coarse else 'postcode or suburb'})",
+                          tag="coarse" if coarse else "fine")
     part = next((order for word, order in NAME_PARTS.items() if word in tokens), None)
     if tokens & NAME_WORDS and not tokens & NOT_A_NAME and texty and not tokens & {"id", "code", "number", "no"}:
         mostly_words = _share(values, lambda v: isinstance(v, str) and len(v.split()) <= 6 and not re.search(r"\d{3,}", v)) >= 0.8

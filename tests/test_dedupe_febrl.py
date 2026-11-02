@@ -72,8 +72,16 @@ def run(name, loader):
     return out
 
 
-print("TEST: FEBRL benchmark - precision / recall for High and High+Maybe (reported, not tuned)")
+# Regression floors: slightly BELOW the numbers last measured (the exact numbers are printed above). A change that lowers recall or
+# precision below them fails; when the finder genuinely improves, raise the floors to just below the new numbers.
+FLOORS = {"febrl1": {"High": (0.99, 0.66), "High+Maybe": (0.99, 0.66)},
+          "febrl3": {"High": (0.99, 0.54), "High+Maybe": (0.99, 0.54)}}
+
+print("TEST: FEBRL benchmark - precision / recall for High and High+Maybe, held to regression floors")
 for name, loader in (("febrl1", rl_datasets.load_febrl1), ("febrl3", rl_datasets.load_febrl3)):
     out = run(name, loader)
-    assert out["High+Maybe"][0] >= 0.5 and out["High"][0] >= 0.5          # a floor that catches a break, not a target
+    for level, (precision_floor, recall_floor) in FLOORS[name].items():
+        precision, recall, _ = out[level]
+        assert precision >= precision_floor, f"{name} {level}: precision {precision:.3f} fell below {precision_floor}"
+        assert recall >= recall_floor, f"{name} {level}: recall {recall:.3f} fell below {recall_floor}"
 print("PASSED")

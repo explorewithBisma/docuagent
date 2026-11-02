@@ -9,6 +9,9 @@ blank (one row has nothing there: unknown, neither a match nor a conflict) - and
          or two strong identifiers are the same.
   MAYBE  a name that matches with nothing to confirm or contradict it ("only the name matches"), a name plus one supporting column,
          or a strong identifier that is the same while another differs.
+  MAYBE  (extra) a date of birth that is the same, with a name that is the same or almost the same - or, with no name to go on, the
+         same postcode / suburb too. A date of birth can only ever create a MAYBE, never a HIGH; a different date of birth
+         removes a Maybe that rested on the name alone.
   never  two different people: a different id, two different strong identifiers, the same phone under a different name (a shared line),
          the same name with a different phone or email (a common name).
 
@@ -54,6 +57,11 @@ def evidence(P, i, j) -> dict:
         out["company"] = (nz.compare_texts(P.companies[i], P.companies[j]), "")
     if P.has.get("address"):
         out["address"] = (nz.compare_sets(P.addresses[i], P.addresses[j]), "")
+    if P.has.get("dob"):
+        a, b = P.dobs[i], P.dobs[j]
+        out["dob"] = ("blank" if not a or not b else "exact" if a == b else "different", "")
+    if P.has.get("place"):
+        out["place"] = (_sets(P.places[i], P.places[j]), "")
     return out
 
 
@@ -89,6 +97,13 @@ def describe(ev: dict) -> str:
             parts.append(f"{labels[role]} differs")
         elif verdict == "blank" and role in STRONG:
             parts.append(f"{labels[role]} blank in one row")
+    if "dob" in ev:
+        if ev["dob"][0] == "exact":
+            parts.append("date of birth same")
+            if ev.get("place", ("",))[0] == "exact":
+                parts.append("postcode / suburb same")
+        elif ev["dob"][0] == "different":
+            parts.append("date of birth differs")
     return ", ".join(parts) if parts else "no identifying column to compare"
 
 
@@ -100,12 +115,30 @@ def _score(ev: dict) -> int:
     points += {"exact": 30, "almost": 20}.get(name, 0)
     for role in SUPPORT:
         points += {"exact": 8, "almost": 4}.get(ev.get(role, ("",))[0], 0)
+    points += 25 if ev.get("dob", ("",))[0] == "exact" else 0
     points -= 25 * sum(1 for r in STRONG if ev.get(r, ("",))[0] == "different")
     return max(1, min(100, points))
 
 
 def classify(ev: dict, strictness: str = "normal"):
-    """-> "high", "maybe" or None for the pair's evidence. strictness: "strict" (no name-only), "normal", "loose" (also a lone typo'd name)."""
+    """-> "high", "maybe" or None for the pair's evidence. strictness: "strict" (no name-only), "normal", "loose" (also a lone typo'd name).
+    The date of birth never changes a High; it can add a Maybe, and a different one removes a Maybe that rested on the name alone."""
+    level = _classify_core(ev, strictness)
+    verdict = {role: v[0] for role, v in ev.items()}
+    if verdict.get("dob") == "different" and level == "maybe" and not any(verdict.get(r) == "exact" for r in STRONG + SUPPORT):
+        return None                                                # same name but a different birthday: two people
+    if level is not None or strictness == "strict" or verdict.get("dob") != "exact":
+        return level
+    different_strong = [r for r in STRONG if verdict.get(r) == "different"]
+    if verdict.get("id") == "different" or len(different_strong) >= 2:
+        return None
+    name = verdict.get("name", "blank")
+    if name in ("exact", "almost") or (name == "blank" and verdict.get("place") == "exact"):
+        return "maybe"
+    return None
+
+
+def _classify_core(ev: dict, strictness: str):
     verdict = {role: v[0] for role, v in ev.items()}
     exact_strong = [r for r in STRONG if verdict.get(r) == "exact"]
     different_strong = [r for r in STRONG if verdict.get(r) == "different"]

@@ -28,6 +28,8 @@ def contact_keys(P) -> list:
             if last9 and len(last9) == 9:
                 row.append(("phone9", last9))
         row += nz.name_block_keys(P.names[i])
+        if P.has.get("dob") and P.dobs[i]:
+            row.append(("dob", P.dobs[i]))
         if P.companies[i] and P.names[i].tokens:
             row.append(("co", nz.skeleton(P.companies[i].split()[0]) + "|" + (P.names[i].tokens[-1] if P.names[i].tokens else "")))
         keys.append(row)
@@ -66,6 +68,6 @@ def candidate_pairs(keys: list, max_pairs: int = MAX_PAIRS):
             break
     for kind, count in skipped.items():
         label = {"n1": "single names", "n2": "names", "n2i": "names", "co": "company names", "email": "emails", "phone": "phone numbers",
-                 "phone9": "phone numbers", "id": "ids", "rec": "records"}.get(kind, kind)
+                 "phone9": "phone numbers", "id": "ids", "rec": "records", "dob": "dates of birth"}.get(kind, kind)
         notes.append(f"{count} {label} shared by too many rows were not used to pair rows (the rows are still compared through their other columns).")
     return pairs, list(dict.fromkeys(notes))

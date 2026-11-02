@@ -22,7 +22,7 @@ print("TEST: the customer list - identity columns found with reasons; dates, amo
 df, _ = fx.customers(300)
 roles, profile = roles_of(df)
 assert roles == {"Customer ID": ("ignore", False), "Full Name": ("name", True), "Email": ("email", True), "Mobile": ("phone", True),
-                 "National ID": ("id", True), "Company": ("company", True), "Address": ("address", True), "City": ("ignore", False),
+                 "National ID": ("id", True), "Company": ("company", True), "Address": ("address", True), "City": ("place", True),
                  "Signup Date": ("ignore", False), "Total Spend": ("ignore", False), "Status": ("ignore", False)}, roles
 why = {r.column: r.why for r in profile.roles}
 assert "every row has a different one" in why["Customer ID"] and why["Signup Date"].startswith("dates") and why["Total Spend"].startswith("amounts")

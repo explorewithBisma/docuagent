@@ -24,6 +24,8 @@ class Prepared:
     ids: list = field(default_factory=list)         # [frozenset of normalised ids]
     companies: list = field(default_factory=list)   # [normalised company text]
     addresses: list = field(default_factory=list)   # [sorted tuple of address words]
+    dobs: list = field(default_factory=list)        # ['YYYY-MM-DD' or '']
+    places: list = field(default_factory=list)      # [frozenset of normalised postcode / suburb / city values]
     records: list = field(default_factory=list)     # transactions: [tuple of comparable values per record column]
     record_columns: list = field(default_factory=list)
     completeness: list = field(default_factory=list)   # number of filled cells in the row (all columns)
@@ -96,8 +98,20 @@ def prepare(df: pd.DataFrame, profile, locale: str = "PK", variants: dict = None
     P.has["address"] = bool(addresses)
     P.addresses = _mapped(df[addresses[0].column], nz.norm_address) if addresses else [()] * n
 
+    dobs = profile.used("dob")
+    P.has["dob"] = bool(dobs)
+    P.dobs = _mapped(df[dobs[0].column], nz.norm_dob) if dobs else [""] * n
+    place_columns = profile.used("place")
+    place_columns = [r for r in place_columns if r.tag == "fine"] or place_columns          # a postcode / suburb beats a city when both exist
+    P.has["place"] = bool(place_columns)
+    if place_columns:
+        per_column = [_mapped(df[r.column], nz.norm_text) for r in place_columns]
+        P.places = [frozenset(v for v in row if v) for row in zip(*per_column)]
+    else:
+        P.places = [frozenset()] * n
+
     if profile.kind == "transactions":
-        columns = [r.column for r in profile.used("record", "name", "email", "phone", "id", "company", "address")]
+        columns = [r.column for r in profile.used("record", "name", "email", "phone", "id", "company", "address", "dob", "place")]
         P.record_columns = columns
         per_column = [_mapped(df[c], _record_value) for c in columns]
         P.records = [tuple(row) for row in zip(*per_column)]

@@ -18,7 +18,7 @@ from toolkit.ui import render_card
 
 PAGE = 10
 ACTIONS = {"Keep all": ap.KEEP_ALL, "Keep one": ap.KEEP_ONE, "Merge (fill blanks)": ap.MERGE}
-ROLE_CHOICES = ["(automatic)", "name", "email", "phone", "id", "company", "address", "ignore"]
+ROLE_CHOICES = ["(automatic)", "name", "email", "phone", "id", "company", "address", "dob", "place", "ignore"]
 KIND_CHOICES = {"Detect automatically": "auto", "A list of people or companies": "contacts", "A list of transactions": "transactions"}
 STRICTNESS = {"Careful - fewer, surer matches": "strict", "Normal": "normal", "Loose - also lone typos": "loose"}
 DIFF_COLOR = "background-color: #FFE699"

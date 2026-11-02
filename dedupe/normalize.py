@@ -16,6 +16,7 @@ Nothing here guesses: a value that cannot be understood is simply left as plain 
 import json
 import re
 import unicodedata
+from datetime import date, datetime
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -240,6 +241,34 @@ def norm_email(value, gmail_rule: bool = False) -> str:
         if domain in ("gmail.com", "googlemail.com"):
             text = local.split("+")[0].replace(".", "") + "@gmail.com"
     return text
+
+
+DOB_FORMATS = ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y", "%Y/%m/%d", "%d %b %Y", "%d %B %Y", "%b %d, %Y", "%B %d, %Y", "%Y%m%d")
+
+
+@lru_cache(maxsize=100_000)
+def _dob_text(text: str) -> str:
+    for pattern in DOB_FORMATS:
+        try:
+            parsed = datetime.strptime(text, pattern).date()
+        except ValueError:
+            continue
+        return parsed.isoformat() if 1900 <= parsed.year <= date.today().year else ""
+    return ""
+
+
+def norm_dob(value) -> str:
+    """A date of birth as 'YYYY-MM-DD' ('' when blank or not a plausible date). Day first when written 03/04/1980; 19081209 is YYYYMMDD."""
+    if is_blank(value):
+        return ""
+    if hasattr(value, "year") and hasattr(value, "month") and hasattr(value, "day"):
+        try:
+            return _dob_text(date(value.year, value.month, value.day).isoformat())
+        except ValueError:
+            return ""
+    if isinstance(value, (int, float)) and float(value).is_integer():
+        return _dob_text(str(int(value)))
+    return _dob_text(str(value).strip())
 
 
 def norm_id(value) -> str:
