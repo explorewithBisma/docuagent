@@ -271,6 +271,18 @@ def _is_aggregate(cell) -> bool:
     return cell.formula.upper().startswith(tuple(f + "(" for f in SUMMING))
 
 
+def _has_own_label(ctx, sheet, cell) -> bool:
+    """True when the cell's row is a labelled row of its own: a typed text label in the row (Total, Uncategorised ...), or the cell
+    itself makes a text label (a formula with words in it, like the 'Small categories (under 3%)' row of a chart table)."""
+    if any(isinstance(other.value, str) and not other.is_formula and other.value.strip() for (r, _), other in sheet.cells.items()
+           if r == cell.row):
+        return True
+    if isinstance(cell.value, str) and cell.value.strip() and not cell.is_error:
+        return True
+    tree = ctx.tree(cell)
+    return tree is not None and any(isinstance(node, fm.Str) and re.search(r"[A-Za-z]{3}", node.value) for node in fm.walk(tree))
+
+
 def _check_siblings(ctx, sheet):
     """In a column of filled-down formulas, the one that does something different from the rest."""
     by_column = defaultdict(list)
@@ -287,17 +299,25 @@ def _check_siblings(ctx, sheet):
                 patterns = [fm.to_relative(c.formula, c.row, c.col) for c in run]
                 common, count = Counter(patterns).most_common(1)[0]
                 if count / len(run) >= 0.7 and count < len(run):
-                    odd = [c for index, (c, p) in enumerate(zip(run, patterns))
+                    odd = [(index, c) for index, (c, p) in enumerate(zip(run, patterns))
                            if p != common and not ctx.is_reported(c) and not row_has_total_label(sheet, c.row)
                            and not _is_aggregate(c)
-                           and 0 < index < len(run) - 1                       # a first/last row is a header or summary row, not a slip
+                           and index > 0                                      # the first row of a run is a seed (a running balance starts differently)
                            and not any(row_has_total_label(sheet, r.row) or _is_aggregate(r) for r in run[:index])]  # nor is anything below a total
-                    if 0 < len(odd) <= 2:
-                        ctx.add(Issue(
-                            "inconsistent_formula", "medium", f"{sheet.name}!{odd[0].coord} does something different from the formulas around it",
-                            f"{count} of the {len(run)} formulas in this column work the same way; this one does not.",
-                            evidence=f"{odd[0].coord}: ={odd[0].formula}   (the others look like ={run[patterns.index(common)].formula})",
-                            locations=[(sheet.name, c.coord) for c in odd], fix="Copy the formula from the cell above if the difference is a mistake."))
+                    last = len(run) - 1
+                    middle = [c for index, c in odd if index < last]
+                    # the last cell of a run differs on purpose when its row is a labelled summary row (Total, Uncategorised ...);
+                    # an unlabelled last cell that differs is reported, but only as a small thing
+                    end = [c for index, c in odd if index == last and not _has_own_label(ctx, sheet, c)]
+                    example = run[patterns.index(common)].formula
+                    for cells, severity, how in ((middle, "medium", "the formulas around it"), (end, "low", "the formulas above it")):
+                        if 0 < len(cells) <= 2:
+                            ctx.add(Issue(
+                                "inconsistent_formula", severity, f"{sheet.name}!{cells[0].coord} does something different from {how}",
+                                f"{count} of the {len(run)} formulas in this column work the same way; this one does not."
+                                + (" It is the last cell of the column and has no label of its own (like Total), so it may just be a slip." if severity == "low" else ""),
+                                evidence=f"{cells[0].coord}: ={cells[0].formula}   (the others look like ={example})",
+                                locations=[(sheet.name, c.coord) for c in cells], fix="Copy the formula from the cell above if the difference is a mistake."))
             run = [cell] if cell is not None else []
 
 

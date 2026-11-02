@@ -434,3 +434,22 @@ cached2 = {("S", f"B{r}"): r * 2 for r in range(1, 6)}
 cached2.update({("S", "B6"): 30, ("S", "B7"): 15, ("S", "B8"): 90, ("S", "B9"): 31})
 assert issues_of(make({"S": after_total}, cached2), "inconsistent_formula") == [], "formulas below a total are their own summary rows"
 print("PASSED")
+
+
+print("TEST: the last cell of a formula column is skipped only when its row has its own label; an unlabelled one that differs is a small finding")
+numbers = {f"A{r}": r for r in range(1, 9)}
+formulas = {f"B{r}": f"=A{r}*2" for r in range(1, 9)}
+cached = {("S", f"B{r}"): r * 2 for r in range(1, 9)}
+unlabelled = {**numbers, **formulas, "A9": 9, "B9": "=A9*3"}               # row 9: a number in A (no text label) and a different formula
+(low,) = issues_of(make({"S": unlabelled}, {**cached, ("S", "B9"): 27}), "inconsistent_formula")
+assert low.severity == "low" and low.locations == [("S", "B9")] and "no label of its own" in low.detail and "above it" in low.title
+labelled = {**numbers, **formulas, "A9": "Uncategorised", "B9": "=A9*3"}
+assert issues_of(make({"S": labelled}, {**cached, ("S", "B9"): 0}), "inconsistent_formula") == []
+wording = {**numbers, **formulas, "A9": 9, "B9": '=IF(A9>0,"Over","OK")'}                # a formula that makes a text label is its own label
+assert issues_of(make({"S": wording}, {**cached, ("S", "B9"): "Over"}), "inconsistent_formula") == []
+seed = {**numbers, **formulas, "B1": "=A1"}                                            # a first row that starts differently is a seed (running balance)
+assert issues_of(make({"S": seed}, cached), "inconsistent_formula") == []
+middle = {**numbers, **formulas, "B4": "=A4*3", "A9": "Total"}
+(mid,) = issues_of(make({"S": middle}, {**cached, ("S", "B4"): 12}), "inconsistent_formula")
+assert mid.severity == "medium", "a slip in the middle stays a medium finding"
+print("PASSED")
