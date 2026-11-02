@@ -495,8 +495,8 @@ columns).
 ## The start screen and "Check my file"
 
 `streamlit run main.py` opens a start screen with five tasks: **Clean my file**, **Check my file**, **Match two files**,
-**Build my budget** and **Check every month**. The last two of those that are not built yet (*Match two files*, *Check every
-month*) are greyed out with "Coming soon"; set `SHOW_UNFINISHED_FEATURES = False` in `config.py` to hide them (for example before
+**Build my budget** and **Check every month**. The one that is not built yet (*Check every
+month*) is greyed out with "Coming soon"; set `SHOW_UNFINISHED_FEATURES = False` in `config.py` to hide them (for example before
 sharing the public link).
 
 **Check my file** (Excel Doctor) reads a workbook and reports, in plain language:
@@ -540,3 +540,28 @@ Output: removed rows go to the **Removed Rows** sheet with the reason, e.g. "Nea
 Code: `dedupe/` (`columns` roles, `normalize`, `prepare`, `blocking`, `score`, `groups`, `analyze`, `apply`), `dedupe_panel.py` (the page section). Tests: `tests/test_dedupe_*.py` (ground-truth precision/recall on a synthetic customer list, a 20,000-row timing test, the app flow).
 
 **Combining totals and dates when you merge (people lists only).** Columns that summarise a person's activity are combined instead of keeping only the kept row's value: totals, counts, points and balances are added up (Ali Khan: Total Spent 4500 + 1200 = 5700), a "Last ... date" takes the latest and a "First ... / Joined / Created" date the earliest. The rules are suggested from the header and the type, shown per group ("Total Spent 4500 + 1200 = 5700; Last Order Date -> 2026-10-15") and editable under "How to combine columns when merging". Every other column keeps the kept row's value and only its blanks are filled. Combined cells are orange in the Excel file and in the Change Log as "Combined from near-duplicates". Never used for a transaction list.
+
+## Match two files (reconciliation)
+
+Upload two files - a bank statement and your own records, stock and sales, payroll and attendance - and see what matches and what does not.
+Your files are never changed; the result is a new Excel workbook.
+
+1. **Upload file A and file B** (CSV or .xlsx; pick the sheet when there are several). Title rows above the header are skipped automatically.
+2. **The columns are found for you**, from the headers and the values: the date, the amount (one signed column, or a debit and a credit
+   column), the reference / id and the description. The "What I found" card shows each choice with where it came from and how sure it is
+   (sure / probably / guess). Change any of them under **Edit details**, together with the days apart allowed (default 3), the amount
+   tolerance for a "maybe" (default 0.5%), the date order and the way money in / out is written.
+3. **Rows are matched in rounds, strongest evidence first, and each match says why:**
+   - *Exact*: the same reference (a different amount is **not** a match - it goes to Mismatches), or the same amount + the same date + a similar description.
+   - *Close*: the same amount, dates within N days; the most similar description wins.
+   - *Maybe*: the amount within the tolerance (rounding, a small fee) and dates within N days. Always a "maybe": tick the ones you confirm.
+   - A row is matched **at most once** (no splits, no many-to-one). What is left is listed as *Only in A* / *Only in B*.
+4. **Signs**: if one file writes money out as a minus and the other with a debit column, that is normalised before matching. If the two files
+   use opposite signs, or one has no minus signs at all, that is detected and shown on the card (and can be set by hand).
+5. **Result**: counts and money for matched, to confirm, only in A, only in B and amount mismatches; a "Please check" list with the biggest
+   amounts first; and one Excel file with the sheets *Summary, Matched* (A and B side by side with the reason), *Maybe, Only in A, Only in B,
+   Mismatches*, one colour per group.
+
+Code: `reconcile/` (`columns` detection, `prepare`, `match`, `report`, `output`, `pipeline`, `views`) and `match_app.py` (the page). Tests:
+`tests/test_reconcile_*.py` (a synthetic bank statement and ledger with a ground-truth table, other header styles and sign conventions, the Excel
+result, a 10,000 x 10,000-row timing test and the page flow).

@@ -7,7 +7,7 @@ The start screen offers five simple tasks. Each one is a file in, a better file 
 
   Clean my file        - the cleaner (app.py)
   Check my file        - Excel Doctor (doctor_app.py)
-  Match two files      - coming soon
+  Match two files      - reconciliation of two files (match_app.py)
   Build my budget      - the budget builder (budget_app.py)
   Check every month    - coming soon
 
@@ -53,7 +53,8 @@ def start_screen():
 start_page = st.Page(start_screen, title="Start", icon="🏠", default=True, url_path="start")
 cleaner_page = st.Page("app.py", title="Clean my file", icon="🧹", url_path="cleaner")
 check_page = st.Page("doctor_app.py", title="Check my file", icon="🩺", url_path="check")
+match_page = st.Page("match_app.py", title="Match two files", icon="🔗", url_path="match")
 budget_page = st.Page("budget_app.py", title="Build my budget", icon="💰", url_path="budget")
-PAGES = {"cleaner": cleaner_page, "check": check_page, "match": None, "budget": budget_page, "monthly": None}
+PAGES = {"cleaner": cleaner_page, "check": check_page, "match": match_page, "budget": budget_page, "monthly": None}
 
-st.navigation([start_page, cleaner_page, check_page, budget_page], position="hidden").run()
+st.navigation([start_page, cleaner_page, check_page, match_page, budget_page], position="hidden").run()
