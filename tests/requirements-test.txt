@@ -1,0 +1,2 @@
+# Test-only dependencies (the app itself does not need these)
+recordlinkage>=0.16     # ships the FEBRL benchmark datasets used by tests/test_dedupe_febrl.py
