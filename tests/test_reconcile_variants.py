@@ -135,3 +135,19 @@ empty = pd.DataFrame({"Date": ["2026-01-01"], "Description": ["x"], "Amount": [1
 nothing, *_ = run(empty, ledger)
 assert len(nothing.pairs) == 0 and nothing.only_a == [0]
 print("PASSED")
+
+print("TEST: with no description column in either file, the same amount on the same date is only 'close' (two payments of one amount on a day are common)")
+plain_a = pd.DataFrame({"Date": ["2026-01-05", "2026-01-05", "2026-01-09"], "Ref No": ["", "", ""], "Amount": [-40.0, -40.0, -15.0]}).drop(columns=["Ref No"])
+plain_b = pd.DataFrame({"Date": ["2026-01-05", "2026-01-05", "2026-01-09"], "Amount": [-40.0, -40.0, -15.0]})
+result, *_ = run(plain_a, plain_b)
+print("  ", [(p.a, p.b, p.bucket, p.reason) for p in result.pairs])
+assert not result.bucket("exact") and len(result.bucket("close")) == 3
+assert all(p.reason.endswith("(no description to compare)") for p in result.pairs)
+assert len({p.a for p in result.pairs}) == 3 and len({p.b for p in result.pairs}) == 3          # still one-to-one
+one_described = pd.DataFrame({"Date": ["2026-01-05"], "Details": ["Coffee"], "Amount": [-40.0]})
+result, *_ = run(one_described, plain_b.iloc[[0]].reset_index(drop=True))
+assert [p.bucket for p in result.pairs] == ["close"]                                              # a description in only one file does not help either
+with_refs = plain_a.assign(Reference=["R1", "R2", "R3"])
+result, *_ = run(with_refs, plain_b.assign(Reference=["R1", "R2", "R3"]))
+assert len(result.bucket("exact")) == 3                                                           # a shared reference is still exact
+print("PASSED")

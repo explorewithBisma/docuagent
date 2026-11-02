@@ -85,7 +85,7 @@ def build_report(name_a, name_b, table_a, table_b, map_a, map_b, A, B, result, a
     sign_confidence = "high" if result.sign == "same" and "line up" in result.sign_text else "medium"
     facts.append(Fact("Money in / out", result.sign_text, "how many amounts line up in each reading", sign_confidence))
     window = result.options.day_window
-    facts.append(Fact("Matching", f"same reference first; then same amount and date; then same amount within {window} day{'s' if window != 1 else ''}; "
+    facts.append(Fact("Matching", f"same reference first; then same amount and date with a similar description; then same amount within {window} day{'s' if window != 1 else ''}; "
                                   f"then amount within {result.options.tolerance:.1%} (always a 'maybe')",
                       "the settings under Edit details", "high"))
     notes = list(map_a.notes) + list(map_b.notes) + [f"File A: {n}" for n in A.notes] + [f"File B: {n}" for n in B.notes]

@@ -5,7 +5,7 @@ Matches the rows of file A with the rows of file B in rounds, strongest evidence
 no splits, no many-to-one - what is left over is listed). Every match carries the reason it was made, in words.
 
   Round 1  exact   the same reference (a different amount is NOT a match: it is listed as a mismatch),
-                   or the same amount + the same date + a similar description
+                   or the same amount + the same date + a similar description (needs a description in both files)
   Round 2  close   the same amount, dates within N days, the most similar description wins
   Round 3  maybe   the amount within a small tolerance (rounding), dates within N days - always a "maybe" for the user to confirm
 
@@ -165,11 +165,11 @@ def reconcile(A, B, options: Options = None) -> Result:
     for i in np.nonzero(free_a & known_a & (A.dates != NO_DATE))[0]:
         for j in block.get((int(cents_a[i]), int(A.dates[i])), ()):
             sim = sim_of(int(i), j)
-            if not descriptions or sim >= SIMILAR:
+            if descriptions and sim >= SIMILAR:                 # with no description to compare it is only "close": two payments of one amount on a day are common
                 candidates.append((-sim, int(i), j, sim))
     for _, i, j, sim in sorted(candidates):
         if free_a[i] and free_b[j]:
-            take(i, j, "exact", 1, "same amount and date, descriptions similar" if descriptions else "same amount and date (no description to compare)", sim if descriptions else None)
+            take(i, j, "exact", 1, "same amount and date, descriptions similar", sim)
 
     # ---- round 2: the same amount, dates within N days ------------------------------------------------------------------------
     by_cents = defaultdict(list)
@@ -191,7 +191,9 @@ def reconcile(A, B, options: Options = None) -> Result:
     for neg_sim, gap, i, j in sorted(candidates):
         if free_a[i] and free_b[j]:
             parts = "same amount and date" if gap == 0 else f"same amount, dates {gap} day{'s' if gap != 1 else ''} apart"
-            if descriptions:
+            if not descriptions:
+                parts += " (no description to compare)"
+            else:
                 parts += f", description {-neg_sim:.0%} similar" if -neg_sim >= SIMILAR else ", descriptions differ"
             take(i, j, "close", 2, parts, -neg_sim if descriptions else None)
 
