@@ -16,7 +16,29 @@
       "bakery",
       "snack",
       "takeaway",
-      "food"
+      "food",
+      "nesto",
+      "carrefour",
+      "lulu",
+      "spinneys",
+      "union coop",
+      "union co-op",
+      "viva",
+      "grandiose",
+      "talabat",
+      "deliveroo",
+      "noon food",
+      "careem food",
+      "foodpanda",
+      "kfc",
+      "mcdonald's",
+      "mcdonalds",
+      "imtiaz",
+      "chase up",
+      "al-fatah",
+      "al fatah",
+      "alfatah",
+      "metro cash"
     ],
     "Transport": [
       "taxi",
@@ -31,7 +53,15 @@
       "parking",
       "toll",
       "ride",
-      "salik"
+      "salik",
+      "rta",
+      "nol",
+      "bykea",
+      "indrive",
+      "pso",
+      "shell",
+      "adnoc",
+      "enoc"
     ],
     "Bills": [
       "electricity",
@@ -42,7 +72,27 @@
       "mobile bill",
       "gas bill",
       "insurance",
-      "subscription"
+      "subscription",
+      "dewa",
+      "sewa",
+      "addc",
+      "fewa",
+      "etisalat",
+      "du",
+      "k-electric",
+      "k electric",
+      "kelectric",
+      "lesco",
+      "iesco",
+      "mepco",
+      "sui gas",
+      "sngpl",
+      "ptcl",
+      "jazz",
+      "zong",
+      "telenor",
+      "ufone",
+      "nayatel"
     ],
     "Housing": [
       "rent",
@@ -57,7 +107,15 @@
       "amazon",
       "noon",
       "gift",
-      "electronics"
+      "electronics",
+      "namshi",
+      "daraz",
+      "sharaf dg",
+      "centrepoint",
+      "centre point",
+      "max",
+      "khaadi",
+      "gul ahmed"
     ],
     "Health": [
       "pharmacy",
@@ -84,6 +142,18 @@
       "taptap send",
       "western union",
       "exchange"
+    ],
+    "Bank & fees": [
+      "account fee",
+      "service charge",
+      "annual fee",
+      "vat on fee",
+      "bank charges",
+      "bank charge",
+      "maintenance fee",
+      "card fee",
+      "monthly fee",
+      "sms charges"
     ],
     "Other": []
   },
@@ -115,7 +185,12 @@
       "saving",
       "fixed deposit",
       "deposit to savings",
-      "investment"
+      "investment",
+      "savings account",
+      "saving account",
+      "deposit account",
+      "term deposit",
+      "investment account"
     ],
     "Card bill payment": [
       "credit card bill",

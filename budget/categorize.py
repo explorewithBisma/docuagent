@@ -24,6 +24,10 @@ from quality import is_blank
 
 DEFAULT_MAP_PATH = Path(__file__).with_name("default_keywords.json")
 SHORT_KEYWORD = 4
+# What a bank puts in front of the merchant: POS 1234 CARREFOUR, ECOM AMAZON, ATM WITHDRAWAL, CHQ 000123, IBFT TO ALI KHAN. Not part of the merchant's name.
+_PREFIX = re.compile(r"^(?:(?:pos|ecom|e-com|atm|chq|cheque|ibft)\b[\s\-:/*#]*(?:\d+[\s\-:/*#]*)?)+", re.IGNORECASE)
+# Keywords of the Card bill payment type that only say "my own account": when the text also names a savings / deposit / investment account, it is Saving.
+OWN_ACCOUNT_WORDS = ("own account", "between accounts", "between my accounts", "internal transfer", "self transfer", "transfer to self", "own transfer")
 
 
 def default_keyword_map() -> dict:
@@ -85,6 +89,13 @@ def _normalize(text) -> str:
     return re.sub(r"\s+", " ", str(text).strip().casefold())
 
 
+def strip_prefix(description) -> str:
+    """The description without a leading bank code (POS, ECOM, ATM, CHQ, IBFT and the reference number after it)."""
+    text = str(description).strip()
+    stripped = _PREFIX.sub("", text).strip()
+    return stripped or text
+
+
 def _hits(text: str, keyword: str) -> bool:
     keyword = _normalize(keyword)
     if not keyword:
@@ -109,14 +120,22 @@ def match_category(description, keyword_map: dict):
     """The category a description belongs to, or None when no keyword matches."""
     if is_blank(description):
         return None
-    return _best(_normalize(description), keyword_map["categories"])
+    return _best(_normalize(strip_prefix(description)), keyword_map["categories"])
 
 
 def match_type(description, keyword_map: dict):
     """A Type implied by the description (salary -> Income, EMI -> Loan payment ...), or None."""
     if is_blank(description):
         return None
-    return _best(_normalize(description), keyword_map.get("type_keywords", {}))
+    text = _normalize(strip_prefix(description))
+    groups = keyword_map.get("type_keywords", {})
+    best = _best(text, groups)
+    if best == "Card bill payment" and "Saving" in groups:
+        # "TRANSFER TO OWN ACCOUNT SAVINGS": the card-bill keyword that matched is only "own account" -> it is a Saving
+        own_only = not any(_hits(text, k) and _normalize(k) not in OWN_ACCOUNT_WORDS for k in groups["Card bill payment"])
+        if own_only and any(_hits(text, k) for k in groups["Saving"]):
+            return "Saving"
+    return best
 
 
 def add_keyword(keyword_map: dict, category: str, keyword: str) -> dict:

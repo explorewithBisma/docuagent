@@ -68,10 +68,10 @@ with mock.patch.dict(os.environ, env, clear=True):
     ws = book["Transactions"]
     rows = [[c.value for c in ws[r]] for r in range(2, 1002) if any(c.value is not None for c in ws[r])]
     kinds = [r[2] for r in rows]
-    assert len(rows) == 28 and kinds.count("Income") == 3 and kinds.count("Card bill payment") == 4 and kinds.count("Loan payment") == 1 and kinds.count("Expense") == 20
+    assert len(rows) == 28 and kinds.count("Income") == 3 and kinds.count("Card bill payment") == 3 and kinds.count("Saving") == 1 and kinds.count("Loan payment") == 1 and kinds.count("Expense") == 20
     by_description = {r[1]: r for r in rows}
     assert by_description["Salary May 2026"][2] == "Income" and by_description["Salary May 2026"][4] == 8000
-    assert by_description["Transfer to own account - savings"][2] == "Card bill payment" and by_description["Resturant Al Mallah"][3] == "Food"
+    assert by_description["Transfer to own account - savings"][2] == "Saving" and by_description["Resturant Al Mallah"][3] == "Food"
     notes = " ".join(str(c.value) for row in book["Import Notes"].iter_rows() for c in row if c.value is not None)
     assert "Closing balance check: the statement ends the month at" in notes and "difference 0.00" in notes
     print("PASSED")

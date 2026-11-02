@@ -52,6 +52,7 @@ TYPE_WORDS = {
     CARD_BILL: ("card bill", "card bill payment", "credit card bill", "credit card payment", "card payment"),
 }
 
+INTEREST_WORDS = re.compile(r"(?i)\b(interest|profit|dividend)")           # money coming in from a savings account that is a RETURN, i.e. income
 _CURRENCY_TEXT = re.compile(r"(?i)(rs\.?|pkr|inr|aed|usd|eur|gbp|dhs?|dirhams?|[$£€₹]|/-|only)")
 _EXCEL_SERIAL_RANGE = (20000, 80000)
 _NUMERIC_TEXT_DATE = re.compile(r"^\s*\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4}\s*$")     # 03/04/2026 - the only text that needs a day/month decision
@@ -340,6 +341,13 @@ def import_transactions(raw: pd.DataFrame, layout: dict, keyword_map: dict, loca
         row_type = _type_from_text(type_text) if type_text else None
         if row_type is None:
             row_type = categorize.match_type(description, keyword_map)
+        money_in = from_credit or (signed_log and amount > 0)
+        if row_type == SAVING and money_in and not type_text:
+            if INTEREST_WORDS.search(description):
+                row_type = INCOME                                   # interest / profit paid by the savings account is income
+            else:
+                row_type = CARD_BILL                                # taken OUT of a savings account: your own money moving, not income, not spending
+                flags.append("money in from savings: recorded as Card bill payment (not income)")
         if row_type is None and from_credit:
             row_type = INCOME
         if row_type is None and signed_log:

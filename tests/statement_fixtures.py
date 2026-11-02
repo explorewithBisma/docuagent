@@ -6,7 +6,8 @@ balance of 5,000.00 and 28 transactions that cover every case:
   debits        groceries, restaurants, transport (one with a typo: "Starbuks"), bills, a shop nothing knows ("Mazaya Trading LLC")
   loan          "EMI HDFC loan"                                    -> Type Loan payment
   card bills    "Credit card payment VISA", "Mastercard bill"       -> Type Card bill payment (not spending)
-  own accounts  "Transfer to own account - savings"                 -> Type Card bill payment (not spending)
+  own accounts  "Transfer to own account - savings"                 -> Type Saving (money moved into the user's own savings account)
+                "Internal transfer from savings"                    -> Type Card bill payment (money coming back: not income, not spending)
   unclear       "IBFT transfer Ali Khan"                            -> stays an Expense, listed in Please check
 
 statement_bytes(shape) renders the same transactions in different layouts; EXPECTED holds the answers.
@@ -81,12 +82,26 @@ def statement_bytes(shape: str = "debit_credit", xlsx: bool = False) -> bytes:
 
 
 # What the budget must come out as -----------------------------------------------------------------------------------------------
-CARD_BILL_ROWS = {"Credit card payment VISA": -2500.00, "Mastercard bill": -800.00, "Transfer to own account - savings": -1500.00, "Internal transfer from savings": 500.00}
+CARD_BILL_ROWS = {"Credit card payment VISA": -2500.00, "Mastercard bill": -800.00, "Internal transfer from savings": 500.00}
 EXPECTED_TYPES = {
     "Salary May 2026": "Income", "Freelance payment - logo design": "Income", "Refund Amazon order": "Income",
-    "EMI HDFC loan": "Loan payment", **{d: "Card bill payment" for d in CARD_BILL_ROWS},
+    "EMI HDFC loan": "Loan payment", "Transfer to own account - savings": "Saving", **{d: "Card bill payment" for d in CARD_BILL_ROWS},
 }
 EXPECTED_CATEGORIES = {"Carrefour Supermarket": "Food", "Uber trip": "Transport", "Resturant Al Mallah": "Food", "DEWA electricity bill": "Bills",
                        "Spinneys grocery": "Food", "Pizza Hut restaurant": "Food", "Careem ride": "Transport", "Shell petrol fuel": "Transport"}
 INCOME_TOTAL = 8000.00 + 1200.00 + 45.50
-NET_OF_CARD_BILL_ROWS = sum(CARD_BILL_ROWS.values())         # -4,300.00: money that left the account but is not spending
+NET_OF_CARD_BILL_ROWS = sum(CARD_BILL_ROWS.values())         # -2,800.00: money that moved but is neither spending nor saving
+
+
+def raw_statement(rows, opening=10000.0, title=None):
+    """A debit/credit statement with a balance column from [(date, description, signed amount)] in time order (CSV bytes)."""
+    body, balance = [], opening
+    for when, description, signed in rows:
+        balance = round(balance + signed, 2)
+        body.append([when.strftime("%d/%m/%Y"), description, _money(-signed) if signed < 0 else None, _money(signed) if signed > 0 else None, _money(balance)])
+    table = ([title] if title else []) + [["Date", "Description", "Debit", "Credit", "Balance"]] + body
+    return pd.DataFrame([r + [None] * (5 - len(r)) for r in table]).to_csv(index=False, header=False).encode("utf-8")
+
+
+def day(n):
+    return date(2026, 5, n)

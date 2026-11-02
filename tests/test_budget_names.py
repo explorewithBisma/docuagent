@@ -44,6 +44,6 @@ assert names.fuzzy_category("Resturant", KM) == ("Food", "restaurant")
 assert names.fuzzy_category("groceries at day to day", KM)[0] == "Food"       # exact words also match; the keyword map is simply tried first
 assert names.fuzzy_category("Supermarkt", KM) == ("Food", "supermarket")
 assert names.fuzzy_category("Taksi", KM) == (None, None), "'taksi' is only 5 letters from 'taxi' (4): too short to guess"
-for unrelated in ("malabar", "Nesto", "Aster", "Grand barsha", "viva", "bus", "", None):
+for unrelated in ("malabar", "Madina", "Aster", "Grand barsha", "Zahra", "bus", "", None):   # (Nesto and Viva are keywords now, so they match exactly)
     assert names.fuzzy_category(unrelated, KM) == (None, None), unrelated
 print("PASSED")

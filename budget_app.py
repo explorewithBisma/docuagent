@@ -77,6 +77,18 @@ def adopt_analysis(analysis, message: str = None):
         st.session_state.bd_message = message
 
 
+def pick_currency(choice: str, current):
+    """One click on a currency in the Please-check list: the choice also goes into the Currency box of Edit details (a button callback runs
+    before the boxes are drawn, so the box can still be changed)."""
+    box = f"bd_currency_{st.session_state.bd_sid}"
+    if choice in CURRENCIES:
+        st.session_state[box] = choice
+    else:
+        st.session_state[box] = "Other..."
+        st.session_state[f"bd_currency_other_{st.session_state.bd_sid}"] = choice
+    adopt_analysis(autopilot.set_currency(current, choice), f"Currency set to {choice}.")
+
+
 # ---------------------------------------------------------------------------------------------
 if st.button("← Back to start", key="back_to_start"):
     st.switch_page("main.py")
@@ -232,7 +244,11 @@ def render_card(current) -> bool:
             st.markdown("**Please check**")
             for item in current.checks[:CHECKS_SHOWN]:
                 st.markdown(f"- {item.text}")
-                if item.action in ("switch_payments_to_card", "switch_payments_to_loan"):
+                if item.action == "choose_currency":
+                    choices = autopilot.currency_choices(current)
+                    for column, choice in zip(st.columns(len(choices) + 2)[:len(choices)], choices):
+                        column.button(choice, key=f"bd_pick_currency_{choice}", on_click=pick_currency, args=(choice, current))
+                elif item.action in ("switch_payments_to_card", "switch_payments_to_loan"):
                     to_card = item.action == "switch_payments_to_card"
                     if st.button("Switch to Card bill payment" if to_card else "Switch back to Loan payment",
                                  key=f"bd_{item.action}"):

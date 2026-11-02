@@ -587,5 +587,12 @@ workbook as for any other upload - with these differences:
   added back before comparing and the card says so ("includes -4,300.00 from 4 card bill payment / own-account transfer row(s)"). Any other difference is
   shown on the card, in Please check and in the workbook's Import Notes - usually a missing, left-out or mistyped row.
 
+**Refinements.** A transfer to your own *savings / deposit / investment* account is a **Saving** (money moved into savings), not a Card bill payment; money
+coming back *from* savings is a Card bill payment (neither income nor spending) unless it is interest or profit, which is Income. A low-confidence currency is
+a Please-check item with one-click buttons (AED, Rs, $ ...); strong country hints in the descriptions (DEWA, Etisalat, ADCB, Dirham -> AED; K-Electric, LESCO,
+HBL, Jazz ... -> Rs) give a medium-confidence currency, and an explicit one in a title line or amount header wins. The default keyword map knows common UAE and
+Pakistan merchants and has a "Bank & fees" category; bank prefixes (POS, ECOM, ATM, CHQ, IBFT and the reference after them) are ignored when matching, and give
+the payment method (Card, Cash withdrawal, Cheque, Bank transfer).
+
 A statement without a balance column still works through the normal flow (credits = Income, debits = Expenses, keyword Types), only without the balance-based
 opening balance and closing-balance check. Code: `budget/statement.py`; tests: `tests/test_statement_budget.py`, `tests/test_statement_app.py`.

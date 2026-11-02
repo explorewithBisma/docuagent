@@ -12,6 +12,7 @@ Recognises a BANK STATEMENT among the uploaded sheets and reads what only a stat
 The balance column is used for those two figures and as a check, never as an amount. Nothing here changes the user's file.
 """
 
+import re
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -226,9 +227,34 @@ def check_text(result: dict, currency: str = "") -> str:
     return text
 
 
+def payment_method(description) -> str:
+    """The payment method a bank's prefix tells: POS / ECOM -> Card, ATM -> Cash withdrawal, CHQ -> Cheque, IBFT / transfer -> Bank transfer ('' if none)."""
+    text = str(description).strip().casefold()
+    prefix = text.split(" ", 1)[0].split("-", 1)[0].split(":", 1)[0].split("/", 1)[0]
+    if prefix in ("pos", "ecom", "e-com"):
+        return "Card"
+    if prefix == "atm":
+        return "Cash withdrawal"
+    if prefix in ("chq", "cheque"):
+        return "Cheque"
+    if prefix == "ibft" or re.search(TRANSFER_WORDS, text):
+        return "Bank transfer"
+    return ""
+
+
+def fill_payment_methods(rows: pd.DataFrame) -> pd.DataFrame:
+    """Rows without a payment method get the one their statement prefix tells (a copy)."""
+    rows = rows.copy()
+    for index, row in rows.iterrows():
+        if pd.isna(row["Payment method"]) or not str(row["Payment method"]).strip():
+            method = payment_method(row["Description"])
+            if method:
+                rows.at[index, "Payment method"] = method
+    return rows
+
+
 def transfer_rows(rows: pd.DataFrame, card_type: str) -> pd.DataFrame:
-    """Rows that look like a bank transfer but were not recognised as moving your own money - the user decides."""
-    import re
+    """Rows that look like a bank transfer but were not recognised as moving your own money (Card bill payment) or saving it - the user decides."""
     pattern = re.compile(TRANSFER_WORDS, re.IGNORECASE)
-    wanted = rows["Description"].astype(str).map(lambda d: pattern.search(d) is not None) & (rows["Type"] != card_type)
+    wanted = rows["Description"].astype(str).map(lambda d: pattern.search(d) is not None) & ~rows["Type"].isin([card_type, "Saving"])
     return rows[wanted]

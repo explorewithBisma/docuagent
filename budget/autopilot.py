@@ -136,6 +136,8 @@ def analyze(file_bytes: bytes, is_csv: bool = False, keyword_map: dict = None, l
             notes.append(f"{skipped} {label} row(s) from the other sheets were already in the log and were not added twice.")
     rows = _chronological(pd.concat([f for f in (income_rows, rows, payment_rows) if not f.empty], ignore_index=True))
     rows = importer.flag_outside_month(rows, month.value)
+    if statement is not None:
+        rows = statement_reader.fill_payment_methods(rows)
     rows["Payment method"] = _canonical_methods(rows["Payment method"], DEFAULT_PAYMENT_METHODS)
 
     opening = detect.detect_opening_balance(raw_sheets, main, month.value)
@@ -263,7 +265,8 @@ def _please_check(analysis: Analysis) -> list:
                                                 "If they move money between your own accounts, set their Type to Card bill payment so they are not counted as "
                                                 "spending or income.", total))
     if analysis.currency.confidence == "low":
-        checks.append(CheckItem("currency", f"Currency '{analysis.currency.value}' is a guess ({analysis.currency.source})."))
+        checks.append(CheckItem("currency", f"Currency '{analysis.currency.value}' is a guess ({analysis.currency.source}). Which currency is this account in?",
+                                action="choose_currency"))
     if analysis.month.confidence != "high":
         checks.append(CheckItem("month", f"Month {analysis.month.value:%B %Y} is {analysis.month.confidence}-confidence "
                                          f"({analysis.month.source})."))
@@ -348,6 +351,19 @@ def with_edits(analysis: Analysis, config: BudgetConfig, rows: pd.DataFrame) -> 
     rows["Flags"] = rows["Flags"].map(lambda f: "" if is_blank(f) else str(f))
     return refresh(replace(analysis, currency=currency, month=month, opening=opening, budgets=budgets,
                            categories=dict(config.categories), rows=rows))
+
+
+CURRENCY_CHOICES = ("AED", "Rs", "$", "£", "€", "SAR", "₹")
+
+
+def currency_choices(analysis: Analysis) -> list:
+    """The currencies offered as one-click buttons: the detected one and its alternatives first, then the usual ones."""
+    return list(dict.fromkeys([str(analysis.currency.value)] + [str(v) for v, _ in analysis.currency.alternatives] + list(CURRENCY_CHOICES)))[:6]
+
+
+def set_currency(analysis: Analysis, value: str) -> Analysis:
+    """The user's choice of currency (one click on the Please-check item): shown as 'chosen by you', full confidence."""
+    return refresh(replace(analysis, currency=detect.Finding(value, "high", "chosen by you")))
 
 
 def switch_payments(analysis: Analysis, new_type: str) -> Analysis:

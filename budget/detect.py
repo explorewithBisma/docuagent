@@ -101,12 +101,57 @@ def detect_currency(raw_sheets: dict, main_sheet: str, layout: dict, locale_code
         code, count = titles.most_common(1)[0]
         candidates.append((code, "medium", f"'{code}' appears {count} times in the headings of the other sheets"))
 
+    # title lines above the header ("Account statement (AED)"), then names that only exist in one country (DEWA, Etisalat, K-Electric ...)
+    title_lines = [v for v in main.iloc[:layout["header_row"]].to_numpy().ravel() if isinstance(v, str)]
+    for line in title_lines:
+        code = _currency_in(line)
+        if code:
+            candidates.append((code, "medium", f"the title line '{line.strip()[:40]}'"))
+            break
+    hint_texts = list(title_lines)
+    if "description" in columns:
+        hint_texts += [v for v in main.iloc[layout["header_row"] + 1:, columns["description"]] if isinstance(v, str)]
+    hinted = currency_from_hints(hint_texts)
+    if hinted is not None:
+        candidates.append((hinted.value, hinted.confidence, hinted.source))
+
     fallback = LOCALES.get(locale_code, LOCALES["PK"])["currency_symbol"]
     if candidates:
         value, confidence, source = candidates[0]
         others = [(v, s) for v, _, s in candidates[1:] if v != value]
         return Finding(value, confidence, source, others)
     return Finding(fallback, "low", f"nothing found in the file; the usual currency for {LOCALES.get(locale_code, LOCALES['PK'])['label']}")
+
+
+# Names that only exist in one country: utilities, telecoms, banks. Two different ones (or three mentions) are a strong hint.
+COUNTRY_HINTS = {
+    "AED": ("dewa", "sewa", "addc", "fewa", "etisalat", "du", "emirates", "enbd", "fab", "adcb", "dirham", "dirhams", "salik", "nol", "rta", "adnoc", "enoc", "mashreq", "nesto", "spinneys",
+            "union coop"),
+    "Rs": ("k-electric", "k electric", "kelectric", "lesco", "iesco", "mepco", "sui gas", "sngpl", "jazz", "zong", "telenor", "ufone", "hbl", "ubl", "meezan", "jazzcash", "easypaisa",
+           "ptcl", "nayatel", "bykea", "daraz", "khaadi", "gul ahmed", "imtiaz", "al-fatah", "al fatah", "alfatah", "pso", "rupees"),
+}
+
+
+def currency_from_hints(texts) -> Finding:
+    """A currency implied by names that only exist in one country (DEWA, Etisalat, ADCB ... -> AED; K-Electric, LESCO, HBL ... -> Rs).
+    Medium confidence at best: it needs two different hint words or three mentions, and the winner must clearly beat the other country."""
+    haystack = " ".join(str(t).casefold() for t in texts if isinstance(t, str))
+    found = {}
+    for currency, words in COUNTRY_HINTS.items():
+        hits = {}
+        for word in words:
+            count = len(re.findall(r"(?<![a-z0-9])" + re.escape(word) + r"(?![a-z0-9])", haystack))
+            if count:
+                hits[word] = count
+        found[currency] = hits
+    score = {c: (len(h), sum(h.values())) for c, h in found.items()}
+    ranked = sorted(score, key=lambda c: score[c], reverse=True)
+    best, other = ranked[0], ranked[1]
+    distinct, total = score[best]
+    if (distinct >= 2 or total >= 3) and (score[other][0] == 0 or distinct >= 2 * score[other][0]):
+        names_ = ", ".join(w.upper() if len(w) <= 5 else w.title() for w in list(found[best])[:3])
+        return Finding(best, "medium", f"the descriptions mention {names_} ({'the UAE' if best == 'AED' else 'Pakistan'})")
+    return None
 
 
 def locale_for_currency(currency: str, default: str) -> str:

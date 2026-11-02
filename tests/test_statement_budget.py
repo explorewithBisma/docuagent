@@ -40,9 +40,9 @@ def check_budget(A, label):
     assert A.month.value == date(2026, 5, 1) and A.month.confidence == "high"
     assert A.opening.value == sf.OPENING and A.opening.confidence == "high" and "balance column" in A.opening.source
     check = A.statement_check
-    assert check["theirs"] == sf.CLOSING and abs(check["difference"]) < 0.005 and check["excluded_rows"] == 4, check
+    assert check["theirs"] == sf.CLOSING and abs(check["difference"]) < 0.005 and check["excluded_rows"] == 3, check
     assert abs(check["excluded"] - sf.NET_OF_CARD_BILL_ROWS) < 0.005
-    assert abs(A.closing_balance - (sf.CLOSING - sf.NET_OF_CARD_BILL_ROWS)) < 0.005          # the Dashboard's own closing leaves the 4 moves out
+    assert abs(A.closing_balance - (sf.CLOSING - sf.NET_OF_CARD_BILL_ROWS)) < 0.005          # the Dashboard's own closing leaves the 3 card bill / transfer-in rows out
     assert A.closing_difference[2] == check["difference"] and not any(c.kind in ("opening", "closing") for c in A.checks)
 
 
@@ -92,9 +92,9 @@ config = BudgetConfig(currency="AED", month_start=A.month.value, opening_balance
 data = build_workbook(config, KM, A.rows, autopilot.import_info(A, A.rows))
 values = recalc(data)
 expenses = float(A.rows.loc[A.rows["Type"] == "Expense", "Amount"].sum())
-print("   dashboard:", {k: values.get(f"Dashboard!{c}") for k, c in {"income": "B5", "expenses": "B6", "opening": "B11", "closing": "B12", "card bills": "B13"}.items()})
+print("   dashboard:", {k: values.get(f"Dashboard!{c}") for k, c in {"income": "B5", "expenses": "B6", "opening": "B11", "closing": "B12", "saved": "B9", "card bills": "B13"}.items()})
 assert abs(values["Dashboard!B5"] - sf.INCOME_TOTAL) < 0.005 and abs(values["Dashboard!B6"] - expenses) < 0.005
-assert abs(values["Dashboard!B13"] - 5300.0) < 0.005                                     # three card bills / transfers out (2500 + 800 + 1500) plus the 500 transferred in: all on their own line
+assert abs(values["Dashboard!B13"] - 3800.0) < 0.005 and abs(values["Dashboard!B9"] - 1500.0) < 0.005      # card bills 2500 + 800 and the 500 back from savings on their own line; the 1500 into savings is Saving
 assert abs(values["Dashboard!B11"] - sf.OPENING) < 0.005 and abs(values["Dashboard!B12"] - A.closing_balance) < 0.005
 imported = carryover.read_generated_workbook(data)
 assert abs(imported.closing_balance - A.closing_balance) < 0.005
@@ -118,7 +118,7 @@ print("TEST: a statement without a balance column still works through the normal
 plain = analyse("signed_no_balance")
 assert plain.statement is None and plain.opening.confidence == "low"
 types = plain.rows["Type"].value_counts().to_dict()
-assert types == {"Expense": 20, "Card bill payment": 4, "Income": 3, "Loan payment": 1}, types
+assert types == {"Expense": 20, "Card bill payment": 3, "Saving": 1, "Income": 3, "Loan payment": 1}, types
 assert plain.closing_difference is None
 print("PASSED")
 

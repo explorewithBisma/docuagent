@@ -82,7 +82,8 @@ def fuzzy_category(description, keyword_map: dict):
     ("Resturant" ~ "restaurant"), else (None, None). Short words are never matched loosely."""
     if is_blank(description):
         return None, None
-    words = [w for w in canonical(description).split() if len(w) >= MIN_TYPO_LENGTH]
+    from budget.categorize import strip_prefix
+    words = [w for w in canonical(strip_prefix(description)).split() if len(w) >= MIN_TYPO_LENGTH]
     best = (0.0, None, None)
     for category, keywords in keyword_map["categories"].items():
         for keyword in keywords:
