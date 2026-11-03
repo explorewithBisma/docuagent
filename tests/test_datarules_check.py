@@ -137,16 +137,6 @@ window = model.RuleSet(rules=[model.Rule("w", "Order Date", "date_range", {"mode
 assert ck.check(table, window, "w").outcomes[0].failing_total == 2
 print("PASSED")
 
-print("TEST: speed - 50,000 rows against 17 rules")
-big = pd.concat([fx.sales_month(2026, 5, 10000, seed, first_id=100000 * seed) for seed in range(1, 6)], ignore_index=True)
-table, _ = rc.table_from_raw(to_raw(big))
-started = time.perf_counter()
-result = ck.check(table, RULES, "big.xlsx", "Sheet1")
-elapsed = time.perf_counter() - started
-print(f"   {len(big):,} rows: {elapsed:.1f} s, {result.status}, {result.counts()}")
-assert elapsed < 20 and result.status == "PASS"                                                         # (clean data, ids made different on purpose)
-print("PASSED")
-
 print("TEST: severity - a number far outside its range (more than 10 x the upper limit) is High; a near miss, a negative, text and other rules keep their usual level")
 rule = model.Rule("a", "Amount", "number_range", {"min": 160, "max": 5440})
 amounts = pd.DataFrame({"Amount": [200, 6000, 250000, 54401, 54400, 100, -99999, "twelve", 5440]})

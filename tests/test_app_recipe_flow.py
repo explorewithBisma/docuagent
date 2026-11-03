@@ -47,7 +47,7 @@ with open(CSV_PATH, "rb") as f:
 at.file_uploader[0].upload("messy_data.csv", csv_bytes, "text/csv")
 at.run()
 
-clean_button = next(b for b in at.button if b.label == "Clean File")
+clean_button = next(b for b in at.button if b.label == "Clean my file")
 clean_button.click()
 at.run()
 print_exceptions(at, "Clean File click")

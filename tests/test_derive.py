@@ -9,6 +9,8 @@ sys.path.insert(0, str(ROOT))
 import numpy as np
 import pandas as pd
 from streamlit.testing.v1 import AppTest
+sys.path.insert(0, str(_Path(__file__).resolve().parent))
+from clean_page_helpers import box, boxes, include_box
 
 import cleaning
 import derive
@@ -153,12 +155,13 @@ def new_app():
     assert not at.exception, [e.value for e in at.exception]
     return at
 at = new_app()
-rel_boxes = {c.label: c for c in at.checkbox if "holds on" in c.label or "always the same" in c.label}
+rel_boxes = {c.label: c for c in at.checkbox if "always the same" in c.label}
 print(list(rel_boxes))
-product_box = next(c for l, c in rel_boxes.items() if l.startswith("Total Spent ="))
-lookup_box = next(c for l, c in rel_boxes.items() if l.startswith("Item ->") and "Price Per Unit" in l)
+product_box = box(at, "fills")                      # the exact fill is a finding: "N missing values can be calculated exactly from Total Spent = ..."
+assert "calculated exactly from Total Spent =" in product_box.label
+lookup_box = next(c for l, c in rel_boxes.items() if l.startswith("Item ->") and "Price Per Unit" in l)     # the opt-in lookup stays under Customize
 assert product_box.value is True and lookup_box.value is False
-next(b for b in at.button if b.label == "Clean File").click()
+next(b for b in at.button if b.label == "Clean my file").click()
 at.run()
 assert not at.exception, [e.value for e in at.exception]
 calc_only = at.session_state["cleaned_sheets"]["Data"]
@@ -167,16 +170,16 @@ assert st_fills["calculated"] and st_fills["lookup"] == {}
 at = new_app()
 next(c for c in at.checkbox if c.label.startswith("Item ->") and "Price Per Unit" in c.label).check()
 at.run()
-next(b for b in at.button if b.label == "Clean File").click()
+next(b for b in at.button if b.label == "Clean my file").click()
 at.run()
 with_lookup = at.session_state["cleaned_sheets"]["Data"]
 assert at.session_state["sheet_stats"]["Data"]["stats"]["fills"]["lookup"]
 assert with_lookup.isna().sum().sum() < calc_only.isna().sum().sum()
 assert "Inferred from a lookup in this file" in at.session_state["report_text"]
 at = new_app()
-next(c for c in at.checkbox if c.label.startswith("Total Spent =")).uncheck()
+box(at, "fills").uncheck()
 at.run()
-next(b for b in at.button if b.label == "Clean File").click()
+next(b for b in at.button if b.label == "Clean my file").click()
 at.run()
 assert at.session_state["sheet_stats"]["Data"]["stats"]["fills"] == {"calculated": {}, "lookup": {}, "passes": 0}
 print("PASSED")

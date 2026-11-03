@@ -28,6 +28,7 @@ Run it with:
 """
 
 import copy
+import hashlib
 import json
 from functools import partial
 
@@ -45,6 +46,8 @@ from report import (
 )
 from locales import LOCALES, DEFAULT_LOCALE
 import dedupe_panel
+import findings
+import findings_ui
 from quality import (
     DEFAULT_PLACEHOLDERS, casefolded_values, columns_with_inconsistent_casing, parse_placeholder_text, profile_dataframe,
 )
@@ -52,6 +55,26 @@ import ai_rules
 import rule_engine
 import recipes
 from rule_checks import preview_rule, preview_text, review_loaded_rules, review_rules
+
+
+@st.cache_data(show_spinner="Looking at your file ...")
+def cached_findings(df, placeholders):
+    """The findings of one sheet (detection only: the real steps run on a copy, nothing is changed). Cached on the sheet's content and the
+    placeholder words, so a click on a tick box does not run it again."""
+    return findings.describe_sheet(df, list(placeholders))
+
+
+def apply_recipe_settings(recipe_file):
+    """Button callback: set the finding tick boxes from a recipe's cleaning settings (it runs before the boxes are drawn)."""
+    try:
+        recipe = recipes.load_recipe(recipe_file)
+        steps = recipe.get("steps")
+        if not isinstance(steps, dict):
+            raise ValueError("This recipe has no cleaning settings (it only holds AI rules). Make one with 'Download my cleaning settings as a recipe'.")
+        findings_ui.apply_recipe_steps(steps, st.session_state.get("_fix_registry", {}))
+        st.session_state.recipe_settings_ok, st.session_state.recipe_settings_message = True, "The ticks above now follow the recipe."
+    except ValueError as error:
+        st.session_state.recipe_settings_ok, st.session_state.recipe_settings_message = False, str(error)
 
 
 @st.cache_data(show_spinner="Looking for relationships between columns ...")
@@ -141,7 +164,8 @@ if st.session_state.get("_started_from_main") and st.button("← Back to start",
 st.title("🧹 Excel & CSV Cleaner")
 st.caption("Upload a messy spreadsheet, see exactly what changed, and download a clean, color-coded file.")
 
-# --- Upload ---
+# --- STEP 1: upload ---
+st.subheader("1. Upload your file")
 uploaded_file = st.file_uploader("Upload your .xlsx or .csv file", type=["xlsx", "csv"])
 
 # "session_state" is Streamlit's way of remembering values between clicks.
@@ -196,135 +220,105 @@ def get_change_records() -> dict:
 
 
 if uploaded_file is not None:
-    # If a *different* file gets uploaded, clear out any old cleaning results
-    # (and AI suggestions) so they don't confusingly stick around next to the
-    # new file's preview.
-    if st.session_state.original_filename != uploaded_file.name:
+    is_csv = uploaded_file.name.lower().endswith(".csv")
+    file_id = hashlib.md5(uploaded_file.getvalue()).hexdigest()[:10]
+    # A different file (even with the same name) clears the old results and AI suggestions, so they do not sit next to the new file's findings.
+    if st.session_state.original_filename != uploaded_file.name or st.session_state.get("_clean_file_id") != file_id:
         for key in SESSION_KEYS:
             if key not in ("original_filename",):
                 st.session_state[key] = None
-
-    is_csv = uploaded_file.name.lower().endswith(".csv")
+        st.session_state["_clean_file_id"] = file_id
     sheets = load_sheets(uploaded_file, is_csv)
     sheet_names = list(sheets.keys())
+    multi_sheet = not is_csv and len(sheet_names) > 1
 
-    # The preview of the raw file sits here but is filled in after the "Clean File" click is handled
-    # (below), so it collapses immediately once the file has been cleaned.
-    preview_area = st.container()
+    # ------------------------------------------------------------------------------------------------------------------
+    # STEP 2 - "Here's what I found": nothing has been changed yet. The four areas are created in page order and filled in
+    # the order the data flows (Customize first, because its placeholder words change what is found).
+    # ------------------------------------------------------------------------------------------------------------------
+    st.subheader("2. Here's what I found")
+    findings_area = st.container()
+    button_area = st.container()
+    customize = st.container().expander("Customize")
 
-    # --- Cleaning options ---
-    with st.container(border=True):
-        st.subheader("Cleaning options")
+    with customize:
+        placeholder_text = st.text_area(
+            "Placeholder values (one per line or comma-separated, case is ignored)",
+            value="\n".join(DEFAULT_PLACEHOLDERS),
+            height=190,
+            help="A cell is converted only if the whole cell equals one of these. Remove a word if it is a legitimate value in your data "
+                 "(e.g. 'None' or 'NA' as a category).",
+        )
+    placeholder_list = parse_placeholder_text(placeholder_text)
+    options = {"placeholders": placeholder_list}
 
-        # Sheet selection (only shown for multi-sheet Excel files)
-        sheets_to_clean = sheet_names  # default: every sheet gets cleaned
-        if not is_csv and len(sheet_names) > 1:
-            choice = st.radio("Which sheet(s) do you want to clean?", options=["All sheets"] + sheet_names,
-                              index=0, horizontal=True)
-            sheets_to_clean = sheet_names if choice == "All sheets" else [choice]
-            st.caption("Sheets you don't select are kept in the downloaded file exactly as they are.")
+    # --- the findings, one tab per sheet ---
+    found = {name: cached_findings(sheets[name], tuple(placeholder_list)) for name in sheet_names}
+    registry, choices = {}, {}
+    with findings_area:
+        if multi_sheet:
+            for tab, name in zip(st.tabs(sheet_names), sheet_names):
+                with tab:
+                    choices[name] = findings_ui.render_sheet(file_id, name, sheets[name], found[name], multi_sheet, registry)
+        else:
+            choices[sheet_names[0]] = findings_ui.render_sheet(file_id, sheet_names[0], sheets[sheet_names[0]], found[sheet_names[0]], multi_sheet, registry)
+    sheets_to_clean = [name for name in sheet_names if choices[name]["clean"]]
+    st.session_state["_fix_registry"] = registry
 
-        # Cleaning step toggles (all on by default)
-        steps_column, advanced_column = st.columns(2)
-        with steps_column:
-            do_headers = st.checkbox(
-                "Clean column headers",
-                value=True,
-                help="Removes extra spaces from column names and renames blank headers.",
-            )
-            do_trim = st.checkbox(
-                "Trim extra spaces from text cells",
-                value=True,
-                help="Removes leading/trailing spaces inside each text cell.",
-            )
-            do_duplicates = st.checkbox(
-                "Remove duplicate rows",
-                value=True,
-                help="Removes rows that are exact copies of another row. Turn this off if repeat "
-                     "entries (e.g. repeat orders) are legitimate in your data.",
-            )
-            do_empty = st.checkbox(
-                "Remove completely empty rows and columns",
-                value=True,
-                help="Removes rows/columns where every single cell is empty.",
-            )
-
-        with advanced_column:
-            with st.expander("Advanced cleaning"):
-                do_placeholders = st.checkbox(
-                    "Convert placeholder text (ERROR, UNKNOWN, N/A ...) to missing values",
-                    value=True,
-                    help="Cells that contain only a placeholder word become truly empty, so they are counted, "
-                         "can be filled in later, and no longer pollute the data. Remove a word from the list "
-                         "if it is a legitimate value in your data (e.g. 'None' or 'NA' as a category).",
-                )
-                do_numeric = st.checkbox(
-                    "Convert numbers stored as text into real numbers",
-                    value=True,
-                    help="A column becomes numeric when at least 90% of its values are plain numbers. IDs, codes, "
-                         "zip codes and phone numbers (including anything with leading zeros) are never converted.",
-                )
-                do_flags = st.checkbox(
-                    "Flag suspicious values (they are never changed)",
-                    value=True,
-                    help="Marks numbers that look wrong - negative ages or quantities, codes like 999, ages under 10 "
-                         "or over 100, and values far outside the usual range - with a red border and a note. "
-                         "Nothing is deleted or altered; turn this off to skip the check.",
-                )
-                placeholder_text = st.text_area(
-                    "Placeholder values (one per line or comma-separated, case is ignored)",
-                    value="\n".join(DEFAULT_PLACEHOLDERS),
-                    height=190,
-                    help="A cell is converted only if the whole cell equals one of these.",
-                )
-
-        steps = {
-            "headers": do_headers, "trim": do_trim, "duplicates": do_duplicates, "empty": do_empty,
-            "placeholders": do_placeholders, "numeric": do_numeric,
-        }
-        steps["fills"] = True  # which relationships get used is decided by the tick boxes below
-        placeholder_list = parse_placeholder_text(placeholder_text)
-        options = {"placeholders": placeholder_list}
-
-        # Fill missing values from other columns (relationships found automatically)
-        approved_relationships = {name: [] for name in sheets_to_clean}
-        detected = {name: detect_for_sheet(sheets[name], steps, tuple(placeholder_list)) for name in sheets_to_clean}
-        if any(found["products"] or found["lookups"] for found in detected.values()):
-            st.markdown("**Fill missing values from other columns**")
-            st.caption(
-                "Found automatically in your data. A missing value is only filled when it can be worked out "
-                "from the other values in the same row, and existing values are never changed."
-            )
-            for name, found in detected.items():
+    with customize:
+        # Opt-in fills from patterns in the file (not arithmetic): never on by default, so they are not findings.
+        lookups_found = {name: detect_for_sheet(sheets[name], {step: True for step in ("headers", "trim", "duplicates", "empty", "placeholders", "numeric")},
+                                                tuple(placeholder_list))["lookups"] for name in sheets_to_clean}
+        approved_lookups = {name: [] for name in sheet_names}
+        if any(lookups_found.values()):
+            st.markdown("**Fill missing values from patterns in the file (optional)**")
+            st.caption("Inferred from this file, not arithmetic: it held for every row here, but it is a pattern, not a law. Off by default - tick one only "
+                       "if you trust the pattern. Existing values are never changed.")
+            for name, items in lookups_found.items():
                 prefix = f"[{name}] " if len(sheets_to_clean) > 1 else ""
-                for relationship in found["products"]:
-                    if st.checkbox(
-                        prefix + relationship["label"], value=True, key=f"rel_{name}_{relationship['label']}",
-                        help="Exact arithmetic: this holds on every row where all three values are present, so a "
-                             "missing one can be calculated exactly.",
-                    ):
-                        approved_relationships[name].append(relationship)
-                for relationship in found["lookups"]:
-                    if st.checkbox(
-                        prefix + relationship["label"], value=False, key=f"rel_{name}_{relationship['label']}",
-                        help="Inferred from this file, not arithmetic: it held for every row here, but it is a "
-                             "pattern, not a law. Off by default - tick it if you trust the pattern.",
-                    ):
-                        approved_relationships[name].append(relationship)
+                for relationship in items:
+                    if st.checkbox(prefix + relationship["label"], value=False, key=f"rel_{name}_{relationship['label']}",
+                                   help="Inferred from this file, not arithmetic. Off by default - tick it if you trust the pattern."):
+                        approved_lookups[name].append(relationship)
+        st.markdown("**AI rules**")
+        st.caption("After cleaning, an optional 'AI-suggested cleaning rules' section appears in step 3. It needs an API key; without one it says why it is off.")
+        st.markdown("**Recipes**")
+        st.caption("A recipe saves the ticks above (and any AI rules you approved) so next month's file can be cleaned the same way.")
+        recipe_file = st.file_uploader("Load a recipe's cleaning settings (.json)", type=["json"], key="settings_recipe_uploader")
+        if recipe_file is not None:
+            st.button("Use this recipe's settings", key="use_recipe_settings", on_click=apply_recipe_settings, args=(recipe_file,))
+        if st.session_state.get("recipe_settings_message"):
+            (st.success if st.session_state.recipe_settings_ok else st.error)(st.session_state.recipe_settings_message)
+        st.download_button("Download my cleaning settings as a recipe", key="download_settings_recipe", mime="application/json",
+                           data=recipes.save_recipe_bytes(recipes.build_recipe("My cleaning settings", DEFAULT_LOCALE, [],
+                                                                               steps=findings_ui.recipe_steps(choices, registry))),
+                           file_name="my_cleaning_settings_recipe.json")
 
-        clean_clicked = st.button("Clean File", type="primary")
+    with button_area:
+        clean_clicked = st.button("Clean my file", type="primary", key="clean_my_file")
+        if clean_clicked and not sheets_to_clean:
+            st.warning("Nothing is selected to clean. Tick 'Clean this sheet' on at least one sheet.")
+            clean_clicked = False
 
-    # --- "Clean File" button ---
+    # --- "Clean my file" ---
     if clean_clicked:
         cleaned_sheets = {}
         sheet_stats = {}
         change_logs = {}  # every changed cell, per sheet - kept in memory only
+        flag_boxes = [name for name in sheets_to_clean if found[name].get("flags") is not None]
+        do_flags = (not flag_boxes) or any(choices[name]["steps"].get("flags", True) for name in flag_boxes)
 
         for name, original_df in sheets.items():
             if name in sheets_to_clean:
+                steps = {**{step: value for step, value in choices[name]["steps"].items() if step != "flags"}, "fills": True}
+                wanted = set(choices[name]["fill_labels"])
+                lookup_labels = {r["label"].split("  (")[0] for r in approved_lookups.get(name, [])}
+                # (re-detected for the steps that are really on, exactly as before: which relationships exist depends on them)
+                detected = detect_for_sheet(original_df, steps, tuple(placeholder_list))
+                relationships = [r for r in detected["products"] if r["label"].split("  (")[0] in wanted] + \
+                                [r for r in detected["lookups"] if r["label"].split("  (")[0] in lookup_labels]
                 change_logs[name] = ChangeLog()
-                sheet_options = {**options, "relationships": approved_relationships.get(name, []),
-                                 "changes": change_logs[name]}
+                sheet_options = {**options, "relationships": relationships, "changes": change_logs[name]}
                 cleaned_df, stats = clean_dataframe_with_steps(original_df.copy(), steps, sheet_options)
                 sheet_stats[name] = {"cleaned": True, "stats": stats}
             else:
@@ -345,6 +339,7 @@ if uploaded_file is not None:
         st.session_state.is_csv = is_csv
         st.session_state.original_filename = uploaded_file.name
         st.session_state.placeholder_list = placeholder_list  # also used to keep placeholders out of the AI samples
+        st.session_state.review_possible_duplicates = any(choices[name]["review"] for name in sheets_to_clean)
         st.session_state.quality_before = {
             name: cached_profile(sheets[name], tuple(placeholder_list)) for name in sheets_to_clean
         }
@@ -360,16 +355,6 @@ if uploaded_file is not None:
         bump_data_version()
         st.success("File cleaned!")
 
-    # --- Preview of the raw uploaded data (tucked away once the file has been cleaned) ---
-    with preview_area:
-        with st.expander("Preview of your uploaded file", expanded=st.session_state.cleaned_sheets is None):
-            if len(sheet_names) > 1:
-                for name in sheet_names:
-                    st.write(f"**Sheet: {name}**")
-                    st.dataframe(sheets[name].head(), hide_index=True)
-            else:
-                st.dataframe(sheets[sheet_names[0]].head(), hide_index=True)
-
 # --- Results: metric cards, tabs, AI rules, and downloads ---
 if st.session_state.cleaned_sheets is not None:
     cleaned_sheets = st.session_state.cleaned_sheets
@@ -383,11 +368,13 @@ if st.session_state.cleaned_sheets is not None:
     )
 
     st.divider()
-    st.subheader("Results")
-    # These two areas sit at the top of the results but are filled in AFTER the AI section below has run,
-    # so they always show the data as it is now (including any AI rules that were just applied).
-    metrics_area = st.container()
-    tabs_area = st.container()
+    st.subheader("3. Result")
+    # These areas sit at the top of the result, in the order the user needs them, but are filled in AFTER the AI section below has run,
+    # so they always show the data as it is now (including any AI rules or near-duplicate decisions that were just applied).
+    metrics_area = st.container()          # what changed, in one sentence per sheet, then the numbers
+    download_area = st.container()         # the download
+    dedupe_area = st.container()           # possible duplicate people: review (never automatic)
+    tabs_area = st.container()             # every change in detail
 
     # ------------------------------------------------------------------
     # AI-SUGGESTED CLEANING RULES (optional second pass)
@@ -641,7 +628,10 @@ if st.session_state.cleaned_sheets is not None:
             build_quality(sheets, st.session_state.sheet_stats, st.session_state.quality_before, placeholders_in_effect),
             removed_rows_by_sheet(st.session_state.change_logs))
         bump_data_version()
-    dedupe_panel.render(st.session_state.cleaned_sheets, st.session_state.change_logs, locale_code, after_near_duplicates)
+    with dedupe_area:
+        if st.session_state.get("review_possible_duplicates"):
+            st.info("You asked to review the possible duplicate people: use 'Look for near-duplicates' below.")
+        dedupe_panel.render(st.session_state.cleaned_sheets, st.session_state.change_logs, locale_code, after_near_duplicates)
 
     # "Apply Approved Rules" above may have just replaced st.session_state.
     # cleaned_sheets - re-read it so everything below (the cards, tabs and
@@ -655,6 +645,14 @@ if st.session_state.cleaned_sheets is not None:
 
     # --- Metric cards ---
     with metrics_area:
+        for name, info in st.session_state.sheet_stats.items():
+            if info["cleaned"]:
+                changed_cells = sum(1 for record in records_by_sheet.get(name, []) if record["reason"] != "flagged")
+                before, after = st.session_state.original_rows[name], len(cleaned_sheets[name])
+                st.markdown(f"**{name}:** {before:,} rows → {after:,} rows · {changed_cells:,} cell{'s' if changed_cells != 1 else ''} changed · "
+                            f"{max(before - after, 0):,} row{'s' if before - after != 1 else ''} removed")
+            else:
+                st.markdown(f"**{name}:** kept exactly as it was")
         render_metric_cards(summary_metrics(
             st.session_state.sheet_stats, cleaned_sheets, st.session_state.original_rows, quality_by_sheet, records_by_sheet,
         ))
@@ -732,61 +730,61 @@ if st.session_state.cleaned_sheets is not None:
                 key="download_recipe_bottom",
             )
 
-    # --- Downloads ---
-    st.divider()
-    st.subheader("Download")
-    XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    # --- Downloads (drawn in the download area, right under the summary) ---
+    with download_area:
+        st.subheader("Download")
+        XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
-    include_report = st.checkbox(
-        "Add a \"Cleaning Summary\" and a \"Change Log\" sheet to the Excel file",
-        value=True,
-        key="include_report_sheets",
-        help="Two extra sheets are added at the END of the workbook (your own sheets are never changed or "
-             "reordered): a one-page summary of what was cleaned, and a filterable list of every changed cell.",
-    )
-    # The highlighted workbook is built only when the download button is clicked
-    # (newer Streamlit); older versions get it built up front.
-    build_excel = partial(
-        export_workbook, cleaned_sheets, st.session_state.change_logs, st.session_state.sheet_stats,
-        st.session_state.quality_before, placeholders_in_effect, st.session_state.original_filename,
-        st.session_state.original_rows, include_report, bool(st.session_state.flagging_enabled), st.session_state.flags_before,
-    )
-    excel_data = build_excel if "callable" in (st.download_button.__doc__ or "") else build_excel()
-
-    first_download, second_download, third_download = st.columns(3)
-    if is_csv:
-        with first_download:
-            st.download_button(
-                label="Download Cleaned File",
-                data=convert_to_download_bytes(cleaned_sheets, is_csv),
-                file_name=base_name + "_cleaned.csv",
-                mime="text/csv",
-                type="primary",
-            )
-        with second_download:
-            st.download_button(
-                label="Download as Excel (with highlights)",
-                data=excel_data,
-                file_name=base_name + "_cleaned_highlighted.xlsx",
-                mime=XLSX_MIME,
-                help="CSV files can't store colors or comments, so this Excel copy highlights every cell that was "
-                     "changed (with a note saying what it was and why). Your plain CSV download is unchanged.",
-            )
-    else:
-        with first_download:
-            st.download_button(
-                label="Download Cleaned File",
-                data=excel_data,
-                file_name=base_name + "_cleaned.xlsx",
-                mime=XLSX_MIME,
-                help="An Excel file with every changed cell highlighted and annotated.",
-                type="primary",
-            )
-
-    with third_download:
-        st.download_button(
-            label="Download Cleaning Report (.txt)",
-            data=st.session_state.report_text,
-            file_name=base_name + "_report.txt",
-            mime="text/plain",
+        include_report = st.checkbox(
+            "Add a \"Cleaning Summary\" and a \"Change Log\" sheet to the Excel file",
+            value=True,
+            key="include_report_sheets",
+            help="Two extra sheets are added at the END of the workbook (your own sheets are never changed or "
+                 "reordered): a one-page summary of what was cleaned, and a filterable list of every changed cell.",
         )
+        # The highlighted workbook is built only when the download button is clicked
+        # (newer Streamlit); older versions get it built up front.
+        build_excel = partial(
+            export_workbook, cleaned_sheets, st.session_state.change_logs, st.session_state.sheet_stats,
+            st.session_state.quality_before, placeholders_in_effect, st.session_state.original_filename,
+            st.session_state.original_rows, include_report, bool(st.session_state.flagging_enabled), st.session_state.flags_before,
+        )
+        excel_data = build_excel if "callable" in (st.download_button.__doc__ or "") else build_excel()
+
+        first_download, second_download, third_download = st.columns(3)
+        if is_csv:
+            with first_download:
+                st.download_button(
+                    label="Download Cleaned File",
+                    data=convert_to_download_bytes(cleaned_sheets, is_csv),
+                    file_name=base_name + "_cleaned.csv",
+                    mime="text/csv",
+                    type="primary",
+                )
+            with second_download:
+                st.download_button(
+                    label="Download as Excel (with highlights)",
+                    data=excel_data,
+                    file_name=base_name + "_cleaned_highlighted.xlsx",
+                    mime=XLSX_MIME,
+                    help="CSV files can't store colors or comments, so this Excel copy highlights every cell that was "
+                         "changed (with a note saying what it was and why). Your plain CSV download is unchanged.",
+                )
+        else:
+            with first_download:
+                st.download_button(
+                    label="Download cleaned Excel",
+                    data=excel_data,
+                    file_name=base_name + "_cleaned.xlsx",
+                    mime=XLSX_MIME,
+                    help="An Excel file with every changed cell highlighted and annotated.",
+                    type="primary",
+                )
+
+        with third_download:
+            st.download_button(
+                label="Download Cleaning Report (.txt)",
+                data=st.session_state.report_text,
+                file_name=base_name + "_report.txt",
+                mime="text/plain",
+            )

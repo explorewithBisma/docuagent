@@ -133,7 +133,7 @@ def new_app(csv_frame, name="data.csv"):
     at.run()
     at.file_uploader[0].upload(name, csv_frame.to_csv(index=False).encode(), "text/csv")
     at.run()
-    next(b for b in at.button if b.label == "Clean File").click()
+    next(b for b in at.button if b.label == "Clean my file").click()
     at.run()
     assert not at.exception, [e.value for e in at.exception]
     return at

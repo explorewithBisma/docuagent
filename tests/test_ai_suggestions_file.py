@@ -76,7 +76,7 @@ def new_app():
     at.run()
     at.file_uploader[0].upload("sample.csv", SAMPLE, "text/csv")
     at.run()
-    next(b for b in at.button if b.label == "Clean File").click()
+    next(b for b in at.button if b.label == "Clean my file").click()
     at.run()
     assert not at.exception, [e.value for e in at.exception]
     return at

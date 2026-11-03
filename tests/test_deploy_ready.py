@@ -110,7 +110,7 @@ with mock.patch.dict(os.environ, clean_env, clear=True):
     cleaner.run()
     cleaner.file_uploader[0].upload("messy.csv", (ROOT / "test_data" / "messy_sample.csv").read_bytes(), "text/csv")
     cleaner.run()
-    next(b for b in cleaner.button if b.label == "Clean File").click()
+    next(b for b in cleaner.button if b.label == "Clean my file").click()
     cleaner.run()
     assert not cleaner.exception and not cleaner.error
     button = next(b for b in cleaner.button if b.label == "Suggest Cleaning Rules")

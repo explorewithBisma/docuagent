@@ -9,6 +9,8 @@ files can be handled with the same code everywhere else in the app.
 
 import io
 
+import datetime
+
 import pandas as pd
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
@@ -41,8 +43,29 @@ def load_sheets(uploaded_file, is_csv: bool) -> dict:
     else:
         # sheet_name=None tells pandas "read every sheet", returned as a dict
         # that keeps the sheets in the same order as the original file.
-        # Excel cells keep their real types (numbers stay numbers).
-        return pd.read_excel(uploaded_file, sheet_name=None, keep_default_na=False, na_values=[""])
+        # Excel cells keep their real types: numbers stay numbers, and TEXT stays text. (Plain read_excel would
+        # turn a column of text like "000101" or "0012345" into the numbers 101 and 12345 - the zeros are lost.)
+        raw = pd.read_excel(uploaded_file, sheet_name=None, keep_default_na=False, na_values=[""], dtype=object)
+        return {name: restore_column_types(frame) for name, frame in raw.items()}
+
+
+def restore_column_types(frame: pd.DataFrame) -> pd.DataFrame:
+    """A sheet read cell by cell (every cell keeps the Python type it has in the file) gets back the column types pandas would give a
+    normal read, but ONLY where every cell really is that type: all numbers -> a number column, all dates -> a date column, an empty
+    column -> float. A column of text stays text, even when the text looks like a number ("000101" keeps its zeros)."""
+    frame = frame.copy()
+    for column in frame.columns:
+        series = frame[column]
+        real = [value for value in series if not (value is None or (isinstance(value, float) and value != value) or value is pd.NaT)]
+        if not real:
+            frame[column] = series.astype("float64")
+        elif all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in real):
+            frame[column] = pd.to_numeric(series)
+        elif all(isinstance(value, bool) for value in real) and len(real) == len(series):
+            frame[column] = series.astype(bool)
+        elif all(isinstance(value, (datetime.datetime, pd.Timestamp)) for value in real):
+            frame[column] = pd.to_datetime(series)
+    return frame
 
 
 def _as_phone_text(value):

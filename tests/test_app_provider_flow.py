@@ -43,7 +43,7 @@ def fresh_app():
     with open(SAMPLE, "rb") as f:
         at.file_uploader[0].upload("messy_sample.csv", f.read(), "text/csv")
     at.run()
-    next(b for b in at.button if b.label == "Clean File").click()
+    next(b for b in at.button if b.label == "Clean my file").click()
     at.run()
     no_exception(at, "upload + clean messy_sample.csv")
     return at

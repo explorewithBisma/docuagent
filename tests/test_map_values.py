@@ -150,7 +150,7 @@ at = AppTest.from_file(str(ROOT / "app.py"), default_timeout=120)
 at.run()
 at.file_uploader[0].upload("g.csv", csv, "text/csv")
 at.run()
-next(b for b in at.button if b.label == "Clean File").click()
+next(b for b in at.button if b.label == "Clean my file").click()
 at.run()
 ai = json.dumps({"rules": [
     {**RULE, "description": "Standardize gender to Male / Female (m, f, male, female)."},

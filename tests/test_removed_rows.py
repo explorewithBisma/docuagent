@@ -142,7 +142,7 @@ at = AppTest.from_file(str(ROOT / "app.py"), default_timeout=120)
 at.run()
 at.file_uploader[0].upload("rows.csv", frame.to_csv(index=False).encode(), "text/csv")
 at.run()
-next(b for b in at.button if b.label == "Clean File").click()
+next(b for b in at.button if b.label == "Clean my file").click()
 at.run()
 assert not at.exception, [e.value for e in at.exception]
 tables = [d.value for d in at.dataframe if list(d.value.columns)[:2] == ["Original row", "Reason"]]

@@ -53,20 +53,22 @@ def clean(at, lookups=False):
     if lookups:
         next(c for c in at.checkbox if c.label.startswith("Item ->")).check()
         at.run()
-    next(b for b in at.button if b.label == "Clean File").click()
+    next(b for b in at.button if b.label == "Clean my file").click()
     at.run()
     assert not at.exception, [e.value for e in at.exception]
 
 
-print("TEST: header, wide layout, tucked-away upload preview")
+print("TEST: header, wide layout, the three steps (upload -> here's what I found -> result)")
 source = (ROOT / "app.py").read_text(encoding="utf-8")
 assert 'layout="wide"' in source
 at = new_app()
 assert at.title[0].value == "🧹 Excel & CSV Cleaner"
-assert any(e.label == "Preview of your uploaded file" and e.proto.expanded for e in at.expander)      # open before cleaning ...
-assert not at.tabs and not at.metric                                                              # ... and no results yet
+assert [s.value for s in at.subheader][:2] == ["1. Upload your file", "2. Here's what I found"]          # findings first ...
+assert any(b.label == "Clean my file" for b in at.button) and any(e.label == "Customize" for e in at.expander)
+assert not at.tabs and not at.metric                                                              # ... and no result yet
 clean(at)
-assert any(e.label == "Preview of your uploaded file" and not e.proto.expanded for e in at.expander)  # ... collapsed afterwards
+assert [s.value for s in at.subheader][:3] == ["1. Upload your file", "2. Here's what I found", "3. Result"]
+assert any(e.label == "Customize" for e in at.expander)
 print("PASSED")
 
 print("TEST: four metric cards with the right numbers")
@@ -186,7 +188,7 @@ at = AppTest.from_file(str(ROOT / "app.py"), default_timeout=180)
 at.run()
 at.file_uploader[0].upload("m.xlsx", (FIXTURES / "messy_multi_sheet.xlsx").read_bytes(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 at.run()
-next(b for b in at.button if b.label == "Clean File").click()
+next(b for b in at.button if b.label == "Clean my file").click()
 at.run()
 assert not at.exception, [e.value for e in at.exception]
 tables = [d.value for d in at.dataframe if "Old value" in d.value.columns]      # the change table (not the removed-rows table)

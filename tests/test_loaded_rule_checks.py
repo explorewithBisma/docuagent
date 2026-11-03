@@ -90,7 +90,7 @@ def open_app(csv_bytes, name="orders.csv"):
     at.run()
     at.file_uploader[0].upload(name, csv_bytes, "text/csv")
     at.run()
-    next(b for b in at.button if b.label == "Clean File").click()
+    next(b for b in at.button if b.label == "Clean my file").click()
     at.run()
     return at
 

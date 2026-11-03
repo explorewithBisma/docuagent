@@ -101,7 +101,7 @@ at.file_uploader[0].upload("people.xlsx", convert_to_download_bytes({"People": p
     "Name": ["Ada", "Bob"], "Phone": ["0300-1234567", "0321-9876543"], "Qty": [2, 3]})}, is_csv=False),
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 at.run()
-next(b for b in at.button if b.label == "Clean File").click()
+next(b for b in at.button if b.label == "Clean my file").click()
 at.run()
 assert not at.exception, [e.value for e in at.exception]
 from io_utils import convert_to_download_bytes as build

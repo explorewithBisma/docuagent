@@ -114,6 +114,10 @@ a { color: var(--emerald); }
 .step b { display: block; font-size: 1.05rem; }
 .step span { color: var(--muted); font-size: .92rem; }
 
+/* ---- Clean my file: the one big button, and the findings tick boxes ---------------------------------------------------------------------- */
+.st-key-clean_my_file { margin: 1.1rem 0 .4rem; }
+.st-key-clean_my_file button { width: 100%; min-height: 3.4rem; font-size: 1.15rem; box-shadow: 0 0 28px rgba(16, 185, 129, 0.30); }
+
 /* ---- phones ------------------------------------------------------------------------------------------------------------------------------- */
 @media (max-width: 640px) {
   [data-testid="stMainBlockContainer"] { padding: 3.6rem 1rem 3rem; }

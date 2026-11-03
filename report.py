@@ -379,6 +379,53 @@ def styled_preview(df: pd.DataFrame, records: list, only_changed: bool = False, 
     return styler, len(positions), len(available)
 
 
+# Colours of the "what I found" preview (on screen only - the Excel files keep their own colours)
+FINDING_COLORS = {"trim": "FFF2CC", "placeholders": "D9D9D9", "numeric": "DDEBF7", "fills": "C6E0B4", "flags": FLAG_FILL_COLOR}
+REMOVED_ROW_STYLE = "background-color: #F8D7DA; color: #1f1f1f; text-decoration: line-through"
+FINDINGS_PREVIEW_ROWS = 40
+FINDINGS_CONTEXT_ROWS = 8
+
+
+def display_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """The data as it is SHOWN: empty cells blank (never 'None' or 'nan'), whole numbers without '.0', dates without a time, text exactly as it is
+    (so '0012345' keeps its zeros). Display only - the data itself is not changed."""
+    def show(value):
+        if value is None or (isinstance(value, float) and value != value) or value is pd.NaT:
+            return ""
+        if isinstance(value, float) and value.is_integer():
+            return str(int(value))
+        if isinstance(value, pd.Timestamp):
+            return value.strftime("%Y-%m-%d") if (value.hour, value.minute, value.second) == (0, 0, 0) else str(value)
+        return value if isinstance(value, str) else str(value)
+    return df.astype(object).apply(lambda column: column.map(show))
+
+
+def styled_findings_preview(df: pd.DataFrame, findings: list, limit: int = FINDINGS_PREVIEW_ROWS):
+    """The uploaded sheet with the problems of the findings marked: the cells a fix will change in a colour per kind of problem, unusual values
+    with a red border, rows that will be removed crossed out. Rows with a problem come first in the preview. Returns (styler, rows_shown, rows_total)."""
+    position_of = {label: position for position, label in enumerate(df.index)}
+    marks, removed = {}, set()
+    for finding in findings:
+        for label, column in finding.cells:
+            if label in position_of and column in df.columns:
+                marks[(position_of[label], column)] = finding.step
+        removed |= {position_of[label] for label in finding.rows if label in position_of}
+    problem_rows = sorted({row for row, _ in marks} | removed)
+    chosen = sorted(set(problem_rows[:limit]) | set(range(min(len(df), FINDINGS_CONTEXT_ROWS))))
+    shown = display_frame(df.iloc[chosen])
+    css = pd.DataFrame("", index=shown.index, columns=shown.columns)
+    for row_number, position in enumerate(chosen):
+        if position in removed:
+            css.iloc[row_number, :] = REMOVED_ROW_STYLE
+    for (position, column), step in marks.items():
+        if position in chosen:
+            style = f"background-color: #{FINDING_COLORS[step]}; color: #1f1f1f"
+            if step == "flags":
+                style += f"; border: 2px solid #{FLAG_BORDER_COLOR}"
+            css.iat[chosen.index(position), list(shown.columns).index(column)] = style
+    return shown.style.apply(lambda _: css, axis=None), len(chosen), len(df)
+
+
 def removed_rows_dataframe(columns: list, rows: list) -> pd.DataFrame:
     """The removed rows as a table: Original row, Reason, then every original column."""
     names = ["Original row", "Reason"] + [str(column) for column in columns]

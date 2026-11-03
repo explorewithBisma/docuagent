@@ -9,6 +9,8 @@ sys.path.insert(0, str(ROOT))
 import numpy as np
 import pandas as pd
 from streamlit.testing.v1 import AppTest
+sys.path.insert(0, str(_Path(__file__).resolve().parent))
+from clean_page_helpers import box, boxes, include_box
 
 import cleaning
 import report
@@ -80,7 +82,7 @@ def new_app():
 
 
 def clean(at):
-    next(b for b in at.button if b.label == "Clean File").click()
+    next(b for b in at.button if b.label == "Clean my file").click()
     at.run()
     assert not at.exception, [e.value for e in at.exception]
 
@@ -102,7 +104,7 @@ assert data["Item"].tolist()[2] == "UNKNOWN" or "UNKNOWN" in data["Item"].tolist
 assert at.session_state["placeholder_list"] == ["ERROR"]
 
 at = new_app()
-next(c for c in at.checkbox if c.label.startswith("Convert placeholder")).uncheck()
+box(at, "placeholders").uncheck()
 at.run()
 clean(at)
 assert "ERROR" in at.session_state["cleaned_sheets"]["Data"]["Item"].tolist()

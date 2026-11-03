@@ -64,7 +64,7 @@ at = AppTest.from_file(str(ROOT / "app.py"), default_timeout=120)
 at.run()
 at.file_uploader[0].upload("rows.csv", csv, "text/csv")
 at.run()
-next(b for b in at.button if b.label == "Clean File").click()
+next(b for b in at.button if b.label == "Clean my file").click()
 at.run()
 assert not at.exception, [e.value for e in at.exception]
 ui = at.session_state["sheet_stats"]["Data"]["stats"]

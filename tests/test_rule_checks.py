@@ -183,7 +183,7 @@ with mock.patch.dict(os.environ, {"GROQ_API_KEY": "gsk_fake", "AI_PROVIDER": "gr
     at.run()
     at.file_uploader[0].upload("orders.csv", csv.encode(), "text/csv")
     at.run()
-    next(b for b in at.button if b.label == "Clean File").click()
+    next(b for b in at.button if b.label == "Clean my file").click()
     at.run()
     next(b for b in at.button if b.label == "Suggest Cleaning Rules").click()
     at.run()

@@ -14,14 +14,19 @@ import json
 from datetime import date
 
 
-def build_recipe(recipe_name: str, locale_code: str, rules: list) -> dict:
+def build_recipe(recipe_name: str, locale_code: str, rules: list, steps: dict = None) -> dict:
     """Build the recipe dict that gets saved to a .json file. Only rules the
-    user actually approved are included - rejected suggestions are dropped."""
-    return {
+    user actually approved are included - rejected suggestions are dropped.
+    `steps` (optional) are the cleaning settings as ticked on the page - {"duplicates": True, "trim": False ...} - so loading the
+    recipe next month ticks the same boxes."""
+    recipe = {
         "recipe_name": recipe_name,
         "locale": locale_code,
         "rules": [rule for rule in rules if rule.get("approved")],
     }
+    if steps is not None:
+        recipe["steps"] = {str(step): bool(value) for step, value in steps.items()}
+    return recipe
 
 
 def build_suggestions_file(suggested_rules_by_sheet: dict, provider: str, model: str, locale_code: str,

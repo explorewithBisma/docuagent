@@ -12,6 +12,8 @@ sys.path.insert(0, str(ROOT))
 import numpy as np
 import pandas as pd
 from streamlit.testing.v1 import AppTest
+sys.path.insert(0, str(_Path(__file__).resolve().parent))
+from clean_page_helpers import box, boxes, include_box
 
 import ai_rules
 import quality
@@ -128,7 +130,7 @@ at = AppTest.from_file(str(ROOT / "app.py"), default_timeout=60)
 at.run()
 at.file_uploader[0].upload("cafe.csv", CSV, "text/csv")
 at.run()
-next(b for b in at.button if b.label == "Clean File").click()
+next(b for b in at.button if b.label == "Clean my file").click()
 at.run()
 data = at.session_state["cleaned_sheets"]["Data"]
 assert data["Location"].isna().sum() == 3 and "ERROR" not in data.to_string() and "UNKNOWN" not in data.to_string()
@@ -158,9 +160,9 @@ at2 = AppTest.from_file(str(ROOT / "app.py"), default_timeout=60)
 at2.run()
 at2.file_uploader[0].upload("cafe.csv", CSV, "text/csv")
 at2.run()
-next(c for c in at2.checkbox if c.label.startswith("Convert placeholder")).uncheck()
+box(at2, "placeholders").uncheck()
 at2.run()
-next(b for b in at2.button if b.label == "Clean File").click()
+next(b for b in at2.button if b.label == "Clean my file").click()
 at2.run()
 assert "ERROR" in at2.session_state["cleaned_sheets"]["Data"]["Item"].tolist()      # still in the data...
 assert any("Placeholder conversion was turned off" in w.value for w in at2.warning)

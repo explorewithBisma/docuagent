@@ -71,7 +71,7 @@ at = AppTest.from_file(str(ROOT / "app.py"), default_timeout=120)
 at.run()
 at.file_uploader[0].upload("c.csv", CSV, "text/csv")
 at.run()
-next(b_ for b_ in at.button if b_.label == "Clean File").click()
+next(b_ for b_ in at.button if b_.label == "Clean my file").click()
 at.run()
 assert not at.exception, [e.value for e in at.exception]
 assert any(s.value == "Data quality: before vs after" for s in at.subheader)

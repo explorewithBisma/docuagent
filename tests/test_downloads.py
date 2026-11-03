@@ -8,6 +8,8 @@ import sys
 sys.path.insert(0, str(ROOT))
 
 import openpyxl
+sys.path.insert(0, str(_Path(__file__).resolve().parent))
+from clean_page_helpers import include_box
 import pandas as pd
 from streamlit.testing.v1 import AppTest
 
@@ -30,7 +32,7 @@ def new_app(name, content, mime):
 
 
 def clean(at):
-    next(b for b in at.button if b.label == "Clean File").click()
+    next(b for b in at.button if b.label == "Clean my file").click()
     at.run()
     assert not at.exception, [e.value for e in at.exception]
 
@@ -95,17 +97,18 @@ ai_row = next(r for r in range(1, summary.max_row + 1) if summary.cell(row=r, co
 assert summary.cell(row=ai_row, column=3).value == len(blue_cells) or summary.cell(row=ai_row, column=3).value >= len(blue_cells)
 print("PASSED")
 
-print("TEST: .xlsx upload -> ONE 'Download Cleaned File' button (the highlighted workbook), no CSV-style second button")
+print("TEST: .xlsx upload -> ONE 'Download cleaned Excel' button (the highlighted workbook), no CSV-style second button")
 at = new_app("messy_multi_sheet.xlsx", XLSX, XLSX_MIME)
 clean(at)
 labels = [b.label for b in at.download_button]
 print(labels)
-assert labels.count("Download Cleaned File") == 1 and "Download as Excel (with highlights)" not in labels
+assert labels.count("Download cleaned Excel") == 1 and "Download Cleaned File" not in labels and "Download as Excel (with highlights)" not in labels
 print("PASSED")
 
 print("TEST: multi-sheet, clean ONE sheet -> others untouched and uncoloured, order kept, extras last")
 at = new_app("messy_multi_sheet.xlsx", XLSX, XLSX_MIME)
-next(r for r in at.radio).set_value("Customers")
+for other in ("Orders", "Notes"):
+    include_box(at, other).uncheck()           # clean ONLY Customers: untick "Clean this sheet" on the others
 at.run()
 clean(at)
 wb = workbook_from(at)

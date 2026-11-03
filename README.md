@@ -62,6 +62,21 @@ Two optional features can use an AI provider; both are off until a key is set, a
 **Clean my file** (column names, types, null counts and a few sample values, optionally masked) and *Use AI to suggest categories* in **Build my budget** (only the distinct
 description texts that no keyword matched). The details, the provider choice and the model overrides are in [Setup](#setup-one-time) below.
 
+## Clean my file in three steps
+
+1. **Upload** your Excel or CSV file.
+2. **Here's what I found** - nothing has been changed yet. Every sheet gets a tab with a plain-language list of what is wrong, each with a count and an example
+   ("1 duplicate row (Sara Ahmed)", "1 empty row and 1 empty column (Notes)", "5 placeholder values like N/A, UNKNOWN, -", "Extra spaces in 2 cells",
+   "12 missing values can be calculated exactly from Total = Qty x Unit Price", "2 unusual values in Age (-5, 999)"). Each finding is a tick box: safe fixes are ticked,
+   risky ones (possible duplicate people) are not and say **Review**. A preview marks the problem cells (empty cells are blank, leading zeros are kept).
+   A sheet that is only notes (like a "Read Me") is marked **Not a data sheet - kept exactly as is**; tick "Include this sheet in the cleaning anyway" to clean it.
+   The ticks are the only on/off control. **Customize** holds what is not a finding: the placeholder word list, opt-in fills from patterns in the file, and recipes
+   (a recipe saves the ticks; loading one sets them). Press **Clean my file**.
+3. **Result** - rows before -> after, cells changed, rows removed; **Download cleaned Excel**; the possible-duplicates review (never automatic); every change in detail.
+
+The findings are not a second detector: the real cleaning steps run once on a copy and their numbers are shown, so a count here is what "Clean my file" will do.
+Text that looks like a number ("000101", "0012345") stays text everywhere.
+
 ## The cleaner in detail
 
 ### What the cleaning does

@@ -10,6 +10,8 @@ sys.path.insert(0, str(ROOT))
 import numpy as np
 import pandas as pd
 from streamlit.testing.v1 import AppTest
+sys.path.insert(0, str(_Path(__file__).resolve().parent))
+from clean_page_helpers import box, boxes, include_box
 
 import cleaning
 import report
@@ -129,9 +131,9 @@ def run(uncheck=False):
     at.file_uploader[0].upload("c.csv", CSV, "text/csv")
     at.run()
     if uncheck:
-        next(c for c in at.checkbox if c.label.startswith("Convert numbers stored as text")).uncheck()
+        box(at, "numeric").uncheck()
         at.run()
-    next(b for b in at.button if b.label == "Clean File").click()
+    next(b for b in at.button if b.label == "Clean my file").click()
     at.run()
     assert not at.exception, [e.value for e in at.exception]
     return at

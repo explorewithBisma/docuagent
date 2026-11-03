@@ -11,6 +11,8 @@ import numpy as np
 import openpyxl
 import pandas as pd
 from streamlit.testing.v1 import AppTest
+sys.path.insert(0, str(_Path(__file__).resolve().parent))
+from clean_page_helpers import box, boxes, include_box
 
 import changes as ch
 import cleaning
@@ -173,9 +175,9 @@ def new_app():
     at.run()
     return at
 at = new_app()
-box = next(c for c in at.checkbox if c.label.startswith("Flag suspicious values"))
-assert box.value is True
-next(b for b in at.button if b.label == "Clean File").click()
+flag_box = box(at, "flags")
+assert flag_box.value is True and "unusual value" in flag_box.label
+next(b for b in at.button if b.label == "Clean my file").click()
 at.run()
 assert not at.exception, [e.value for e in at.exception]
 tables = [d.value for d in at.dataframe if "Flagged" in d.value.columns]
@@ -190,9 +192,9 @@ styler, _, _ = report.styled_preview(at.session_state["cleaned_sheets"]["Data"],
 assert "border: 2px solid #E26B0A" in styler.to_html()
 assert "Red border: flagged" in report.legend_html()
 at2 = new_app()
-next(c for c in at2.checkbox if c.label.startswith("Flag suspicious values")).uncheck()
+box(at2, "flags").uncheck()
 at2.run()
-next(b for b in at2.button if b.label == "Clean File").click()
+next(b for b in at2.button if b.label == "Clean my file").click()
 at2.run()
 assert not at2.exception, [e.value for e in at2.exception]
 assert not [d for d in at2.dataframe if "Flagged" in d.value.columns]

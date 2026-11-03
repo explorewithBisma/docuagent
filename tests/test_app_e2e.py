@@ -5,6 +5,9 @@ FIXTURES = _Path(__file__).resolve().parent / "fixtures"
 exercises real widget interactions (upload, clean, AI suggest) without a
 browser or a real Anthropic API key."""
 from streamlit.testing.v1 import AppTest
+import sys
+sys.path.insert(0, str(_Path(__file__).resolve().parent))
+from clean_page_helpers import box, boxes, include_box
 
 APP_PATH = str(ROOT / "app.py")
 CSV_PATH = str(FIXTURES / "messy_data.csv")
@@ -35,7 +38,7 @@ at.file_uploader[0].upload("messy_data.csv", csv_bytes, "text/csv")
 at.run()
 print_exceptions(at, "CSV upload")
 
-clean_button = next(b for b in at.button if b.label == "Clean File")
+clean_button = next(b for b in at.button if b.label == "Clean my file")
 clean_button.click()
 at.run()
 print_exceptions(at, "Clean File click")
@@ -73,16 +76,15 @@ at2.file_uploader[0].upload(
 at2.run()
 print_exceptions(at2, "xlsx upload")
 
-radio_labels = [r.value for r in at2.radio]
-print("Sheet-selection radio default value:", radio_labels)
+print("Sheet tick boxes:", [c.label for c in at2.checkbox if c.key and c.key.startswith("include|")])
 
-# Select only the "Customers" sheet to clean
-sheet_radio = at2.radio[0]
-sheet_radio.set_value("Customers")
+# Clean only the "Customers" sheet: untick "Clean this sheet" on the others
+for other in ("Orders", "Notes"):
+    include_box(at2, other).uncheck()
 at2.run()
 print_exceptions(at2, "selecting single sheet to clean")
 
-clean_button2 = next(b for b in at2.button if b.label == "Clean File")
+clean_button2 = next(b for b in at2.button if b.label == "Clean my file")
 clean_button2.click()
 at2.run()
 print_exceptions(at2, "Clean File click (single sheet mode)")

@@ -64,13 +64,12 @@ assert not at.exception, [e.value for e in at.exception]
 assert any("budget" in t.value.lower() for t in at.title) and any(b.key == "back_to_start" for b in at.button)
 print("PASSED")
 
-print("TEST: app.py only changed for the approved near-duplicate hook (the cleaner and its tests are otherwise untouched)")
-diff = subprocess.run(["git", "diff", "-U0", "65a059f", "--", "app.py"], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
-removed = [l for l in diff.splitlines() if l.startswith("-") and not l.startswith("---")]
-added = [l for l in diff.splitlines() if l.startswith("+") and not l.startswith("+++")]
-# only the removed-rows caption (counts near-duplicates) and the AI button (switched off without an API key) may be rewritten; everything else is added lines (the dedupe hook, the Back-to-start button)
-assert len(removed) <= 3 and all("duplicate" in l or "fully empty" in l or "Suggest Cleaning Rules" in l for l in removed), removed      # the caption, and the AI button (now off without a key)
-assert len(added) <= 40, len(added)                  # the approved hook is about ten lines, plus the caption
+print("TEST: the cleaning engine and the Excel output code are untouched by the 'Clean my file' redesign (pinned to the last commit before it, ae597e2)")
+engine = ["cleaning.py", "changes.py", "xlsx_export.py", "derive.py", "flags.py", "quality.py"]
+diff = subprocess.run(["git", "diff", "ae597e2", "--", *engine], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")
+assert diff.returncode == 0 and diff.stdout.strip() == "", diff.stdout[:600]
+source = (ROOT / "app.py").read_text(encoding="utf-8")
+assert "clean_dataframe_with_steps(" in source and "export_workbook" in source and "ChangeLog()" in source           # the page reuses them, it does not reimplement them
 print("PASSED")
 
 print("TEST: 'Match two files' opens the matcher, which links back to the start screen")

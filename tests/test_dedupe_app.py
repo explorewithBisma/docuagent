@@ -14,7 +14,7 @@ import changes as ch
 import cleaning
 from xlsx_export import export_workbook
 
-STEPS_LABEL = "Clean File"
+STEPS_LABEL = "Clean my file"
 SAMPLE = (ROOT / "test_data" / "messy_sample.csv").read_bytes()
 PEOPLE = pd.DataFrame({
     "Name": ["Ali Khan", "ali  KHAN", "Sara Ahmed", "Sara Ahmed", "Omar Farooq", "Bilal Raza", "Mohamed Saleh", "Muhammad Saleh"],
