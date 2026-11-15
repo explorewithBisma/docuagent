@@ -2,7 +2,7 @@
 
 import pytest
 
-from backend.schemas import Confidence, DocType, Invoice, LineItem, Severity
+from backend.schemas import DocType, Invoice, LineItem, Severity
 from backend.services.validation import has_errors, validate_invoice
 
 
@@ -94,13 +94,16 @@ def test_negative_amounts_and_low_confidence_are_warnings():
     invoice.line_items = []
     assert codes(invoice)["negative_amount"] == Severity.warning
     invoice = good()
-    invoice.confidence = Confidence(total=0.3, vendor_name=0.9)
+    invoice.low_confidence_fields = ["total"]
     low = [i for i in validate_invoice(invoice) if i.code == "low_confidence"]
     assert [i.field for i in low] == ["total"] and low[0].severity == Severity.warning
+    invoice.overall_confidence = 0.3
+    assert codes(invoice)["low_overall_confidence"] == Severity.warning
 
 
-def test_confidence_values_are_kept_between_0_and_1():
-    assert Confidence(total=1.7, tax=-0.2).total == 1.0 and Confidence(total=1.7, tax=-0.2).tax == 0.0
+def test_confidence_is_clamped_and_only_real_field_names_are_kept():
+    assert Invoice(overall_confidence=1.7).overall_confidence == 1.0 and Invoice(overall_confidence=-0.2).overall_confidence == 0.0
+    assert Invoice(low_confidence_fields=["total", "bogus", "total", "tax"]).low_confidence_fields == ["total", "tax"]
 
 
 def test_the_sample_documents_have_exactly_the_planted_problems(sample_files):

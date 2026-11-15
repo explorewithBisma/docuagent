@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from backend.config import Settings
 from backend.llm.runner import ExtractionFailed, ResilientExtractor
 from backend.models import Document, utcnow
-from backend.schemas import (Confidence, DocumentOut, DocumentStatus, DocumentSummary, DuplicateKind, DuplicateMatch, Invoice, Issue)
+from backend.schemas import (DocumentOut, DocumentStatus, DocumentSummary, DuplicateKind, DuplicateMatch, Invoice, Issue)
 from backend.services.duplicates import find_duplicate
 from backend.services.files import SourceFile, UnreadableFile, count_pages, detect_file_type, sha256_hex
 from backend.services.normalize import normalize_invoice_number, normalize_vendor
@@ -90,7 +90,9 @@ def create_from_upload(session: Session, settings: Settings, extractor: Resilien
     try:
         result = extractor.extract(SourceFile(data, file_type.mime, pages))
     except ExtractionFailed as failure:
-        raise WorkflowError(502 if failure.bad_output else 503, {"message": failure.message, "errors": failure.errors})
+        # nothing is saved here: no record and no file. A cut-off answer is a 422 (the document is the problem, not the service).
+        status = 422 if failure.truncated else 502 if failure.bad_output else 503
+        raise WorkflowError(status, {"message": failure.message, "errors": [] if failure.truncated else failure.errors})
 
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     path = Path(settings.upload_dir) / f"{file_hash}.{file_type.extension}"
@@ -123,12 +125,9 @@ def apply_patch(session: Session, settings: Settings, doc: Document, patch: dict
     unknown = sorted(set(patch) - allowed)
     if unknown:
         raise WorkflowError(422, f"Unknown field(s): {', '.join(unknown)}.")
-    merged = {**Invoice.model_validate(doc.data).model_dump(), **{k: v for k, v in patch.items() if k != "confidence"}}
-    confidence = Confidence.model_validate(doc.data.get("confidence", {})).model_dump()
-    for field in patch:
-        if field in confidence:
-            confidence[field] = 1.0 if patch[field] not in (None, "", []) else None
-    merged["confidence"] = confidence
+    merged = {**Invoice.model_validate(doc.data).model_dump(), **patch}
+    if "low_confidence_fields" not in patch:         # a field the user has just fixed is no longer in doubt
+        merged["low_confidence_fields"] = [f for f in merged["low_confidence_fields"] if f not in patch]
     try:
         invoice = Invoice.model_validate(merged)
     except ValidationError as error:

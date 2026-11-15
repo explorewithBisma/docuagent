@@ -6,7 +6,7 @@ from typing import Any, Optional
 
 from pydantic import ValidationError
 
-from backend.llm.base import (PROMPT, LLMBadOutput, LLMClient, LLMNotConfigured, LLMProviderError, LLMRateLimitError, LLMTimeoutError)
+from backend.llm.base import (PROMPT, LLMBadOutput, LLMClient, LLMNotConfigured, LLMProviderError, LLMRateLimitError, LLMTimeoutError, LLMTruncatedOutput)
 from backend.schemas import Invoice
 from backend.services.files import SourceFile
 
@@ -53,11 +53,23 @@ class GeminiClient(LLMClient):
         return self._parse(response)
 
     @staticmethod
-    def _parse(response: Any) -> Invoice:
+    def _finish_reason(response: Any) -> str:
+        try:
+            reason = response.candidates[0].finish_reason
+            return str(getattr(reason, "name", reason) or "")
+        except (AttributeError, IndexError, TypeError):
+            return ""
+
+    @classmethod
+    def _parse(cls, response: Any) -> Invoice:
+        if cls._finish_reason(response).upper() in ("MAX_TOKENS", "LENGTH"):     # cut off: never use partial data
+            raise LLMTruncatedOutput("Gemini stopped at its output limit (the answer is cut off).")
         parsed = getattr(response, "parsed", None)
         if isinstance(parsed, Invoice):
             return parsed
         try:
             return Invoice.model_validate(json.loads(response.text))
-        except (ValidationError, json.JSONDecodeError, TypeError, AttributeError) as error:
+        except json.JSONDecodeError as error:
+            raise LLMTruncatedOutput(f"Gemini did not return complete JSON (it may have been cut off): {error}") from error
+        except (ValidationError, TypeError, AttributeError) as error:
             raise LLMBadOutput(f"Gemini did not return a valid invoice JSON: {error}") from error

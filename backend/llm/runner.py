@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from backend.config import Settings
-from backend.llm.base import RETRYABLE, LLMBadOutput, LLMClient, LLMError, LLMNotConfigured
+from backend.llm.base import RETRYABLE, LLMBadOutput, LLMClient, LLMError, LLMNotConfigured, LLMTruncatedOutput
 from backend.llm.gemini import GeminiClient
 from backend.llm.groq_client import GroqClient
 from backend.schemas import Invoice
@@ -25,9 +25,12 @@ class ExtractionResult:
 class ExtractionFailed(Exception):
     """No provider could read the document. `errors` lists what each one said; `message` is safe to show to the user."""
 
-    def __init__(self, message: str, errors: list[str], bad_output: bool = False):
+    def __init__(self, message: str, errors: list[str], bad_output: bool = False, truncated: bool = False):
         super().__init__(message)
-        self.message, self.errors, self.bad_output = message, errors, bad_output
+        self.message, self.errors, self.bad_output, self.truncated = message, errors, bad_output, truncated
+
+
+TOO_LONG_MESSAGE = "Document too long for the free tier, try fewer pages."
 
 
 @dataclass
@@ -60,6 +63,9 @@ class ResilientExtractor:
                 except LLMNotConfigured as error:
                     errors.append(f"{client.name}: {error}")
                     break
+                except LLMTruncatedOutput as error:       # cut off: partial data is never used, and the next provider is not asked (the document is the problem)
+                    errors.append(f"{client.name}: {error}")
+                    raise ExtractionFailed(TOO_LONG_MESSAGE, errors, bad_output=True, truncated=True) from error
                 except LLMError as error:                                                 # bad output, bad key, server error: not retried
                     bad_output = bad_output or isinstance(error, LLMBadOutput)
                     errors.append(f"{client.name}: {error}")

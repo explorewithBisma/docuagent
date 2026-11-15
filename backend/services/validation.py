@@ -9,7 +9,6 @@ from backend.schemas import DocType, Invoice, Issue, Severity
 from backend.services.normalize import parse_iso_date
 
 LOW_CONFIDENCE = 0.6
-CHECKED_FOR_CONFIDENCE = ("vendor_name", "invoice_number", "invoice_date", "due_date", "currency", "subtotal", "tax", "total")
 
 
 def _dec(value: Optional[float]) -> Optional[Decimal]:
@@ -86,10 +85,13 @@ def validate_invoice(invoice: Invoice, tolerance: float = 0.01) -> list[Issue]:
             add("negative_amount", name, Severity.warning, f"The {name} is negative ({_money(value)}). Is this a credit note?")
 
     # --- how sure the model was ----------------------------------------------------------------------------------------
-    for name in CHECKED_FOR_CONFIDENCE:
-        confidence = getattr(invoice.confidence, name)
-        if getattr(invoice, name) is not None and confidence is not None and confidence < LOW_CONFIDENCE:
-            add("low_confidence", name, Severity.warning, f"The {name.replace('_', ' ')} was hard to read (confidence {confidence:.0%}). Please check it.")
+    for name in invoice.low_confidence_fields:
+        value = getattr(invoice, name, None)
+        if value not in (None, []):                     # nothing to check when the field is empty (a missing field has its own issue)
+            add("low_confidence", name, Severity.warning, f"The {name.replace('_', ' ')} was hard to read. Please check it.")
+    if invoice.overall_confidence is not None and invoice.overall_confidence < LOW_CONFIDENCE:
+        add("low_overall_confidence", "overall_confidence", Severity.warning,
+            f"The document was hard to read (overall confidence {invoice.overall_confidence:.0%}). Please check every field.")
     return issues
 
 

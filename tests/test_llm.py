@@ -9,7 +9,7 @@ import httpx
 import pytest
 from google.genai import errors as genai_errors
 
-from backend.llm.base import LLMBadOutput, LLMClient, LLMNotConfigured, LLMProviderError, LLMRateLimitError, LLMTimeoutError
+from backend.llm.base import LLMBadOutput, LLMClient, LLMNotConfigured, LLMProviderError, LLMRateLimitError, LLMTimeoutError, LLMTruncatedOutput
 from backend.llm.gemini import GeminiClient
 from backend.llm.groq_client import GroqClient
 from backend.llm.runner import ExtractionFailed, ResilientExtractor
@@ -119,15 +119,15 @@ def test_bad_output_is_reported_as_such():
 
 # --- Groq: images only -------------------------------------------------------------------------------------------------------------
 class FakeGroqSDK:
-    def __init__(self, answer=None, error=None):
-        self.requests, self.answer, self.error = [], answer, error
+    def __init__(self, answer=None, error=None, finish_reason="stop"):
+        self.requests, self.answer, self.error, self.finish_reason = [], answer, error, finish_reason
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
     def _create(self, **kwargs):
         self.requests.append(kwargs)
         if self.error:
             raise self.error
-        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=self.answer))])
+        return SimpleNamespace(choices=[SimpleNamespace(finish_reason=self.finish_reason, message=SimpleNamespace(content=self.answer))])
 
 
 def test_groq_gets_png_pages_never_the_pdf(sample_files, tmp_path):
@@ -208,3 +208,30 @@ def test_gemini_errors_map_to_our_errors():
             GeminiClient("key", "m", sdk_client=FakeGeminiSDK(error=error)).extract(SOURCE)
     with pytest.raises(LLMNotConfigured):
         GeminiClient("", "m").extract(SOURCE)
+
+
+# --- truncated output: never use partial data ----------------------------------------------------------------------------------------------
+def test_groq_finish_reason_length_is_a_truncated_output_even_if_the_json_looks_complete():
+    complete_looking = json.dumps({"vendor_name": "Acme", "total": 12.5})
+    with pytest.raises(LLMTruncatedOutput):
+        GroqClient("key", "m", sdk_client=FakeGroqSDK(answer=complete_looking, finish_reason="length")).extract(IMAGE)
+
+
+def test_groq_invalid_json_is_treated_as_truncated():
+    with pytest.raises(LLMTruncatedOutput):
+        GroqClient("key", "m", sdk_client=FakeGroqSDK(answer='{"vendor_name": "Acme", "line_items": [{"descr')).extract(IMAGE)
+
+
+def test_gemini_max_tokens_is_a_truncated_output():
+    cut = SimpleNamespace(parsed=None, text='{"vendor_name": "Acme"', candidates=[SimpleNamespace(finish_reason=SimpleNamespace(name="MAX_TOKENS"))])
+    with pytest.raises(LLMTruncatedOutput):
+        GeminiClient("key", "m", sdk_client=FakeGeminiSDK(response=cut)).extract(SOURCE)
+
+
+def test_a_truncated_answer_stops_everything_with_a_clear_message_and_is_not_retried():
+    gemini, groq_client = Scripted("gemini", [LLMTruncatedOutput("cut off")]), Scripted("groq", [INVOICE])
+    extractor, sleeps = runner(gemini, groq_client)
+    with pytest.raises(ExtractionFailed) as failure:
+        extractor.extract(SOURCE)
+    assert failure.value.truncated is True and failure.value.message == "Document too long for the free tier, try fewer pages."
+    assert gemini.calls == 1 and groq_client.calls == 0 and sleeps == []

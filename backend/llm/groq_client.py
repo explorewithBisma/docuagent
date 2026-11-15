@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 from pydantic import ValidationError
 
-from backend.llm.base import (PROMPT, LLMBadOutput, LLMClient, LLMNotConfigured, LLMProviderError, LLMRateLimitError, LLMTimeoutError)
+from backend.llm.base import (PROMPT, LLMBadOutput, LLMClient, LLMNotConfigured, LLMProviderError, LLMRateLimitError, LLMTimeoutError, LLMTruncatedOutput)
 from backend.schemas import Invoice
 from backend.services.files import SourceFile
 
@@ -42,8 +42,7 @@ class GroqClient(LLMClient):
 
     def build_messages(self, source: SourceFile) -> list[dict]:
         """One user message: the prompt, the schema, and every page as a base64 image (never a PDF)."""
-        schema = json.dumps(Invoice.model_json_schema())
-        content: list[dict] = [{"type": "text", "text": f"{PROMPT}\n\nJSON schema:\n{schema}"}]
+        content: list[dict] = [{"type": "text", "text": PROMPT}]
         for image, mime in source.page_images(dpi=120):
             encoded = base64.b64encode(image).decode("ascii")
             content.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}})
@@ -67,6 +66,14 @@ class GroqClient(LLMClient):
         except groq.APIStatusError as error:
             raise LLMProviderError(f"Groq error {error.status_code}: {error}") from error
         try:
-            return Invoice.model_validate(json.loads(response.choices[0].message.content))
-        except (ValidationError, json.JSONDecodeError, TypeError, AttributeError, IndexError) as error:
+            choice = response.choices[0]
+        except (AttributeError, IndexError, TypeError) as error:
+            raise LLMBadOutput("Groq returned no answer.") from error
+        if getattr(choice, "finish_reason", None) == "length":      # hit max_tokens: the JSON is cut off, never use it
+            raise LLMTruncatedOutput(f"Groq stopped at the {self.max_tokens}-token output limit (the answer is cut off).")
+        try:
+            return Invoice.model_validate(json.loads(choice.message.content))
+        except json.JSONDecodeError as error:
+            raise LLMTruncatedOutput(f"Groq did not return complete JSON (it may have been cut off): {error}") from error
+        except (ValidationError, TypeError, AttributeError) as error:
             raise LLMBadOutput(f"Groq did not return a valid invoice JSON: {error}") from error

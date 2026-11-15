@@ -70,8 +70,7 @@ def flagged_fields(doc: dict) -> dict[str, str]:
 
 
 def label_for(field: str, label: str, doc: dict, marks: dict[str, str]) -> str:
-    confidence = (doc["data"].get("confidence") or {}).get(field)
-    mark = marks.get(field) or ("⚠" if confidence is not None and confidence < LOW_CONFIDENCE else "")
+    mark = marks.get(field) or ("⚠" if field in (doc["data"].get("low_confidence_fields") or []) else "")
     return f"{mark} {label}".strip()
 
 

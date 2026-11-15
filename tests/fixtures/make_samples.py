@@ -16,13 +16,11 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from backend.schemas import Confidence, DocType, Invoice, LineItem  # noqa: E402
-
-FULL_CONFIDENCE = Confidence(**{name: 0.95 for name in Confidence.model_fields})
+from backend.schemas import DocType, Invoice, LineItem  # noqa: E402
 
 
 def _invoice(**fields) -> Invoice:
-    return Invoice(confidence=FULL_CONFIDENCE, **fields)
+    return Invoice(overall_confidence=0.95, **fields)
 
 
 SAMPLES: dict[str, Invoice] = {

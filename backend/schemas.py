@@ -23,24 +23,7 @@ class LineItem(BaseModel):
     amount: Optional[float] = Field(None, description="Line total as printed (quantity x unit price)")
 
 
-class Confidence(BaseModel):
-    """How sure the model is about each field, 0 (guess) to 1 (clearly printed). Null when the field itself is null."""
-    doc_type: Optional[float] = None
-    vendor_name: Optional[float] = None
-    vendor_tax_id: Optional[float] = None
-    invoice_number: Optional[float] = None
-    invoice_date: Optional[float] = None
-    due_date: Optional[float] = None
-    currency: Optional[float] = None
-    line_items: Optional[float] = None
-    subtotal: Optional[float] = None
-    tax: Optional[float] = None
-    total: Optional[float] = None
-
-    @field_validator("*")
-    @classmethod
-    def _clamp(cls, value: Optional[float]) -> Optional[float]:
-        return None if value is None else max(0.0, min(1.0, float(value)))
+DATA_FIELDS = ("doc_type", "vendor_name", "vendor_tax_id", "invoice_number", "invoice_date", "due_date", "currency", "line_items", "subtotal", "tax", "total")
 
 
 class Invoice(BaseModel):
@@ -55,7 +38,8 @@ class Invoice(BaseModel):
     subtotal: Optional[float] = None
     tax: Optional[float] = None
     total: Optional[float] = None
-    confidence: Confidence = Field(default_factory=Confidence)
+    overall_confidence: Optional[float] = Field(None, description="How sure the reader is about the whole document, 0 to 1")
+    low_confidence_fields: list[str] = Field(default_factory=list, description="Names of the fields it was unsure about (usually empty)")
 
     @field_validator("vendor_name", "vendor_tax_id", "invoice_number", "invoice_date", "due_date", "currency", mode="before")
     @classmethod
@@ -65,6 +49,18 @@ class Invoice(BaseModel):
             value = value.strip()
             return value or None
         return value
+
+    @field_validator("overall_confidence")
+    @classmethod
+    def _clamp(cls, value: Optional[float]) -> Optional[float]:
+        return None if value is None else max(0.0, min(1.0, float(value)))
+
+    @field_validator("low_confidence_fields")
+    @classmethod
+    def _known_fields_only(cls, names: list[str]) -> list[str]:
+        """Only real field names (the model may write anything); no repeats, order kept."""
+        known = set(DATA_FIELDS)
+        return list(dict.fromkeys(name for name in names if name in known))
 
     @field_validator("currency")
     @classmethod

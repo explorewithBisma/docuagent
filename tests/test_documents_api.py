@@ -24,7 +24,7 @@ def test_upload_returns_a_draft_with_data_and_no_issues_for_a_clean_invoice(clie
     assert document["provider"] == "fake" and document["issues"] == [] and document["duplicate"] is None
     data = document["data"]
     assert data["vendor_name"] == "Northwind Office Supplies Ltd" and data["invoice_number"] == "INV-2024-001" and data["total"] == 139.29
-    assert len(data["line_items"]) == 3 and data["confidence"]["total"] == 0.95
+    assert len(data["line_items"]) == 3 and data["overall_confidence"] == 0.95 and data["low_confidence_fields"] == []
     assert fake_llm.calls == 1
 
 
@@ -75,7 +75,7 @@ def test_patch_fixes_fields_and_revalidates(client, sample_files):
     response = client.patch(f"/documents/{document['id']}", json={"total": 540.0})
     assert response.status_code == 200
     fixed = response.json()
-    assert fixed["data"]["total"] == 540.0 and fixed["issues"] == [] and fixed["data"]["confidence"]["total"] == 1.0          # an edited field is fully trusted
+    assert fixed["data"]["total"] == 540.0 and fixed["issues"] == [] and "total" not in fixed["data"]["low_confidence_fields"]          # an edited field is no longer in doubt
     assert fixed["data"]["vendor_name"] == "Blue Harbor Logistics"                                                             # other fields untouched
     cleared = client.patch(f"/documents/{document['id']}", json={"due_date": None}).json()
     assert cleared["data"]["due_date"] is None
@@ -165,3 +165,16 @@ def test_when_every_ai_provider_fails_the_user_gets_a_clear_503_and_nothing_is_s
 
 def test_health(client):
     assert client.get("/health").json() == {"status": "ok"}
+
+
+def test_a_truncated_answer_gives_a_clear_error_and_saves_nothing(client, sample_files, settings, fake_llm, extractor):
+    from backend.llm.base import LLMTruncatedOutput
+
+    def cut_off(source):
+        raise LLMTruncatedOutput("stopped at the output limit")
+    fake_llm.extract = cut_off
+    response = upload(client, "1", sample_files["1_clean_invoice"])
+    assert response.status_code == 422
+    assert response.json()["detail"]["message"] == "Document too long for the free tier, try fewer pages."
+    assert client.get("/documents").json() == []                                            # no partial record
+    assert not settings.upload_dir.exists() or list(settings.upload_dir.iterdir()) == []   # no stored file either

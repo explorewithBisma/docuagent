@@ -34,20 +34,21 @@ class LLMProviderError(LLMError):
     """Any other provider failure (bad key, unsupported model, server error): not retried, the next provider is tried."""
 
 
+class LLMTruncatedOutput(LLMBadOutput):
+    """The answer was cut off (finish_reason "length" / max tokens) or is not complete JSON. The partial data is never used."""
+
+
 RETRYABLE = (LLMRateLimitError, LLMTimeoutError)
 
-PROMPT = """You read invoices and receipts and return their data as JSON that follows the given schema.
-
-Rules:
-- Copy values exactly as printed. NEVER invent, guess or calculate a value that is not on the document: use null for anything missing or unreadable.
-- doc_type is "invoice" or "receipt" (a till / shop receipt). Use null if you cannot tell.
-- Dates must be ISO format YYYY-MM-DD. If a date is ambiguous or unreadable, use null.
-- currency is the ISO 4217 code (USD, EUR, GBP, AED ...). Use null if no currency is shown.
-- Amounts are plain numbers without currency symbols or thousands separators (1234.50).
-- line_items has one entry per printed line: description, quantity, unit_price, amount (null for any part that is not printed).
-- subtotal, tax and total are the amounts printed on the document. Do not recompute them.
-- confidence: for every field a number from 0 (a guess) to 1 (clearly printed), or null when the field itself is null.
-Return only the JSON object."""
+# Compact on purpose: the free tiers limit tokens per minute, so a short prompt and a short answer (null fields left out, minified JSON) matter.
+PROMPT = (
+    "Read this invoice/receipt and reply with JSON only. Copy values exactly as printed; NEVER invent or calculate a value. "
+    "Leave out (do not write) every field that is missing or unreadable.\n"
+    "Fields: doc_type (invoice|receipt), vendor_name, vendor_tax_id, invoice_number, invoice_date and due_date (YYYY-MM-DD), currency (ISO code), "
+    "line_items [{description, quantity, unit_price, amount}] one per printed line, subtotal, tax, total (plain numbers as printed), "
+    "overall_confidence (0-1 for the whole document), low_confidence_fields (names of fields you are unsure about; usually []).\n"
+    "Minified JSON on one line, no explanation."
+)
 
 
 class LLMClient(ABC):
