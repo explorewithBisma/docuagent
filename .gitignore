@@ -1,24 +1,28 @@
-# Secrets / API keys - never commit these
+# Secrets - never commit these
 .env
 .env.*
-*.env
-.streamlit/secrets.toml
-secrets.toml
+!.env.example
 *.pem
 *.key
-credentials*.json
-service-account*.json
 
 # Python
 __pycache__/
 *.pyc
 .venv/
 venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# Local output
+# Local data
+*.db
+*.sqlite3
+uploads/
+data/
 *.log
-tests/fixtures/test_recipe.json
 
-# Personal financial data - never commit
-test_data/Daily_Budget_Tracker_*personal*.xlsx
-test_data/*personal*
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
