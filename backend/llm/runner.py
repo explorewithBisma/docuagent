@@ -77,8 +77,14 @@ class ResilientExtractor:
 
 
 def build_extractor(settings: Settings) -> ResilientExtractor:
-    """Gemini first, Groq as the fallback (providers without a key are skipped at call time)."""
-    return ResilientExtractor(
-        clients=[GeminiClient(settings.gemini_api_key, settings.gemini_model, settings.llm_timeout_seconds),
-                 GroqClient(settings.groq_api_key, settings.groq_model, settings.llm_timeout_seconds, max_tokens=settings.groq_max_tokens)],
-        max_tries=settings.llm_max_tries, backoff_seconds=settings.llm_backoff_seconds)
+    """Providers in the order of LLM_PROVIDER_ORDER (default: Groq first, Gemini as the fallback). Providers without a key are skipped at call time."""
+    available = {
+        "groq": GroqClient(settings.groq_api_key, settings.groq_model, settings.llm_timeout_seconds, max_tokens=settings.groq_max_tokens),
+        "gemini": GeminiClient(settings.gemini_api_key, settings.gemini_model, settings.llm_timeout_seconds),
+    }
+    names = [n.strip().lower() for n in settings.llm_provider_order.split(",") if n.strip()]
+    unknown = [n for n in names if n not in available]
+    if unknown or not names:
+        raise ValueError(f"LLM_PROVIDER_ORDER must list {' and/or '.join(available)} (got '{settings.llm_provider_order}').")
+    clients = [available[n] for n in dict.fromkeys(names)]
+    return ResilientExtractor(clients=clients, max_tries=settings.llm_max_tries, backoff_seconds=settings.llm_backoff_seconds)

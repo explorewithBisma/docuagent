@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-3.8-flash"
     groq_api_key: str = ""
     groq_model: str = "qwen/qwen3.8-27b"
+    llm_provider_order: str = "groq,gemini"      # who is asked first; the next one is the fallback (names: groq, gemini)
     groq_max_tokens: int = 1000                 # the free tier allows 1,000 output tokens per minute; asking for more is refused
     llm_timeout_seconds: float = 60.0
     llm_max_tries: int = 3                      # per provider, for rate-limit (429) and timeout errors

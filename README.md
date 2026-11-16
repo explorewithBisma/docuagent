@@ -7,9 +7,9 @@ This is **Phase 1 (MVP)**: upload, extract, validate, duplicate check, edit, con
 ## What it does
 
 - **Upload** a PDF, PNG or JPG (max 10 MB, max 5 pages). The file type is checked from the file content, not its name.
-- **Extract** the data with Google Gemini (structured JSON). Anything not on the document is `null`, never invented. The answer is kept small (free-tier token limits): one `overall_confidence` (0-1) plus a `low_confidence_fields` list instead of a confidence per field.
+- **Extract** the data with **Groq** (a vision model; the primary provider, structured JSON). Anything not on the document is `null`, never invented. The answer is kept small (free-tier token limits): one `overall_confidence` (0-1) plus a `low_confidence_fields` list instead of a confidence per field.
   If the answer is cut off (output limit reached, or incomplete JSON) nothing is saved and the user sees "Document too long for the free tier, try fewer pages."
-  If Gemini is busy or has no key, **Groq** (a vision model) is used instead; Groq reads images only, so PDF pages are turned into PNGs first.
+  If Groq is busy or has no key, **Google Gemini** is used instead (change the order with `LLM_PROVIDER_ORDER`). Groq reads images only, so PDF pages are turned into PNGs first.
 - **Validate** (plain Python, no AI): line items add up to the subtotal, subtotal + tax = total (small tolerance), valid dates, due date not before the invoice date,
   required fields present, low-confidence fields. Each issue has a field, a severity (error or warning) and a plain-English message.
 - **Detect duplicates**
@@ -67,6 +67,7 @@ copy .env.example .env                 # macOS/Linux: cp .env.example .env   - t
 
 | Variable | Meaning | Default |
 |---|---|---|
+| `LLM_PROVIDER_ORDER` | Providers in the order they are asked (first = primary) | `groq,gemini` |
 | `GEMINI_API_KEY` | Google Gemini key (free tier) | empty |
 | `GEMINI_MODEL` | Gemini model name | `gemini-3.8-flash` |
 | `GROQ_API_KEY` | Groq key (fallback) | empty |

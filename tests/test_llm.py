@@ -235,3 +235,21 @@ def test_a_truncated_answer_stops_everything_with_a_clear_message_and_is_not_ret
         extractor.extract(SOURCE)
     assert failure.value.truncated is True and failure.value.message == "Document too long for the free tier, try fewer pages."
     assert gemini.calls == 1 and groq_client.calls == 0 and sleeps == []
+
+
+# --- provider order ---------------------------------------------------------------------------------------------------------------------
+def test_default_provider_order_is_groq_then_gemini():
+    from backend.config import Settings
+    from backend.llm.runner import build_extractor
+    settings = Settings(_env_file=None)
+    assert settings.llm_provider_order == "groq,gemini"
+    assert [c.name for c in build_extractor(settings).clients] == ["groq", "gemini"]
+
+
+def test_provider_order_can_be_changed_and_bad_names_are_refused():
+    from backend.config import Settings
+    from backend.llm.runner import build_extractor
+    assert [c.name for c in build_extractor(Settings(_env_file=None, llm_provider_order="Gemini, groq")).clients] == ["gemini", "groq"]
+    assert [c.name for c in build_extractor(Settings(_env_file=None, llm_provider_order="gemini")).clients] == ["gemini"]
+    with pytest.raises(ValueError):
+        build_extractor(Settings(_env_file=None, llm_provider_order="openai"))

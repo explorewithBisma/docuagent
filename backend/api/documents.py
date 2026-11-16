@@ -16,7 +16,7 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 
 
 def get_extractor(settings: Settings = Depends(get_settings)) -> ResilientExtractor:
-    """The LLM runner (Gemini, then Groq). Tests replace this dependency with a fake."""
+    """The LLM runner (order from LLM_PROVIDER_ORDER, default Groq then Gemini). Tests replace this dependency with a fake."""
     return build_extractor(settings)
 
 
