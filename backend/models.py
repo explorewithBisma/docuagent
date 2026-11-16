@@ -37,3 +37,16 @@ class Document(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ChatSession(Base):
+    """One agent conversation. `messages` is a list of {role: user|assistant|note, content, at, tool_trace?}; `pending_action` is a save request
+    waiting for the user's Approve click (the agent can only create it, never approve it)."""
+    __tablename__ = "chat_sessions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    document_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    messages: Mapped[list[Any]] = mapped_column(JSON, default=list)
+    pending_action: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

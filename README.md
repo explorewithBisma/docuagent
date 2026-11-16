@@ -2,7 +2,8 @@
 
 DocuAgent reads **invoices and receipts** (PDF, PNG or JPG), extracts the data with an AI model, **checks it** (maths, dates, missing fields), **flags duplicates**, and saves it to a database **only after you confirm**.
 
-This is **Phase 1 (MVP)**: upload, extract, validate, duplicate check, edit, confirm. Not built yet: an agent loop, a React front end, RAG / chat, an MCP server, authentication, deployment.
+**Phase 1** is the pipeline: upload, extract, validate, duplicate check, edit, confirm. **Phase 2** adds an **agent** you chat with (function calling) that does the same steps for you but can never save by itself.
+Not built yet: a React front end, n8n, RAG / invoice analytics, an MCP server, authentication, deployment.
 
 ## What it does
 
@@ -18,6 +19,20 @@ This is **Phase 1 (MVP)**: upload, extract, validate, duplicate check, edit, con
   - *possible*: similar vendor + same total + dates within 3 days (configurable).
 - **Review and confirm**: edit any field (it is re-validated), then **Confirm & Save** (draft -> confirmed). An exact duplicate can never be saved; error-level issues need an explicit "save anyway".
 - **Resilient**: a rate limit (429) or timeout is retried up to 3 times with exponential backoff (it honours the provider's own "try again in 14 s" hint), then the other provider is tried. If both fail, the UI says so clearly.
+
+## The agent (Phase 2)
+
+Open the **Agent** page in the Streamlit sidebar: upload a document, then chat ("review this", "invoice number is INV-2231", "save it").
+
+- **Model**: a Groq text model with tool calling, `AGENT_MODEL` (default `openai/gpt-oss-20b`, `reasoning_effort=low`), separate from the vision `GROQ_MODEL`.
+- **Tools** (thin wrappers over `backend/services`): `get_document`, `extract_document`, `validate_document`, `check_duplicates`, `update_fields`, `request_confirmation`, `search_documents`.
+  At most 6 tool calls per message; unknown tools and invalid arguments are refused safely.
+- **Human approval**: the agent can never save. `request_confirmation` only creates a pending request; the document is saved only when **you** click **Approve & Save**.
+  If the document's fields change after the request, the approval is refused and must be requested again. **Reject** clears it and tells the agent.
+- **Only your values**: `update_fields` accepts only values you typed (or said "yes" to); the "What the agent did" panel shows which of your messages each update came from.
+- **Document text is data**: extracted text is wrapped as `<data>...</data>` in tool results and the agent is told never to obey it.
+- **No tokens unless you act**: the model is called only when you send a message or click "Ask the agent to review it".
+- API: `POST /agent/chat` - `GET /agent/sessions/{id}` - `POST /agent/sessions/{id}/approve` - `POST /agent/sessions/{id}/reject`.
 
 ## Architecture
 
@@ -48,7 +63,8 @@ Folders:
 ```
 backend/   config.py  schemas.py (Pydantic)  models.py  database.py  main.py
            api/documents.py   llm/{base,gemini,groq_client,runner}.py   services/{documents,files,normalize,validation,duplicates}.py
-ui/        streamlit_app.py
+ui/        streamlit_app.py (Phase 1 page)  pages/2_Agent.py (agent chat)  api_client.py
+           (agent code: backend/agent/, backend/api/agent.py, backend/services/agent_sessions.py)
 tests/     conftest.py   fixtures/make_samples.py (5 fake PDFs)   test_*.py
 ```
 
@@ -68,6 +84,7 @@ copy .env.example .env                 # macOS/Linux: cp .env.example .env   - t
 | Variable | Meaning | Default |
 |---|---|---|
 | `LLM_PROVIDER_ORDER` | Providers in the order they are asked (first = primary) | `groq,gemini` |
+| `AGENT_MODEL` | Groq text model with tool calling for the Agent page | `openai/gpt-oss-20b` |
 | `GEMINI_API_KEY` | Google Gemini key (free tier) | empty |
 | `GEMINI_MODEL` | Gemini model name | `gemini-3.8-flash` |
 | `GROQ_API_KEY` | Groq key (fallback) | empty |
@@ -75,7 +92,7 @@ copy .env.example .env                 # macOS/Linux: cp .env.example .env   - t
 | `GROQ_MAX_TOKENS` | Output tokens per Groq call (the free tier allows 1,000 per minute) | `1000` |
 | `DATABASE_URL` | SQLAlchemy URL: `sqlite:///./docuagent.db` or your Neon Postgres URL | SQLite file |
 
-Optional settings (same names in upper case): `MAX_UPLOAD_MB` (10), `MAX_PAGES` (5), `AMOUNT_TOLERANCE` (0.01), `DUPLICATE_DATE_WINDOW_DAYS` (3), `VENDOR_SIMILARITY` (0.85),
+Optional settings (same names in upper case): `AGENT_REASONING_EFFORT` (low), `AGENT_MAX_TOKENS` (700), `AGENT_MAX_TOOL_CALLS` (6), `AGENT_HISTORY_MESSAGES` (12), `MAX_UPLOAD_MB` (10), `MAX_PAGES` (5), `AMOUNT_TOLERANCE` (0.01), `DUPLICATE_DATE_WINDOW_DAYS` (3), `VENDOR_SIMILARITY` (0.85),
 `LLM_MAX_TRIES` (3), `LLM_BACKOFF_SECONDS` (1), `LLM_TIMEOUT_SECONDS` (60), `UPLOAD_DIR`.
 
 ## Run it

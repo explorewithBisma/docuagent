@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 from pydantic import ValidationError
 
-from backend.llm.base import (PROMPT, LLMBadOutput, LLMClient, LLMNotConfigured, LLMProviderError, LLMRateLimitError, LLMTimeoutError, LLMTruncatedOutput)
+from backend.llm.base import (PROMPT, LLMBadOutput, LLMClient, LLMError, LLMNotConfigured, LLMProviderError, LLMRateLimitError, LLMTimeoutError, LLMTruncatedOutput)
 from backend.schemas import Invoice
 from backend.services.files import SourceFile
 
@@ -22,6 +22,22 @@ def retry_hint(text: str) -> Optional[float]:
     if match.group(2):
         seconds += float(match.group(2)) / (1000 if match.group(3) == "ms" else 1)
     return seconds
+
+
+def translate_groq_error(error: Exception) -> LLMError:
+    """Maps a Groq SDK exception to our error classes. 429 and 503 ("over capacity") are retryable; so are timeouts and dropped connections."""
+    import groq
+    if isinstance(error, groq.RateLimitError):
+        return LLMRateLimitError(f"Groq rate limit: {error}", retry_after=retry_hint(str(error)))
+    if isinstance(error, (groq.APITimeoutError, groq.APIConnectionError)):
+        return LLMTimeoutError(f"Groq timed out or could not connect: {error}")
+    if isinstance(error, groq.APIStatusError):
+        if error.status_code == 503:
+            return LLMRateLimitError(f"Groq is over capacity (503): {error}", retry_after=retry_hint(str(error)))
+        if error.status_code == 400 and "tool_use_failed" in str(error):
+            return LLMBadOutput(f"The model produced a malformed tool call: {error}")
+        return LLMProviderError(f"Groq error {error.status_code}: {error}")
+    return LLMProviderError(f"Groq failed: {error}")
 
 
 class GroqClient(LLMClient):
@@ -59,12 +75,8 @@ class GroqClient(LLMClient):
         try:
             response = self._sdk().chat.completions.create(model=self.model, messages=messages, response_format={"type": "json_object"}, temperature=0,
                                                            max_tokens=self.max_tokens)
-        except groq.RateLimitError as error:
-            raise LLMRateLimitError(f"Groq rate limit: {error}", retry_after=retry_hint(str(error))) from error
-        except (groq.APITimeoutError, groq.APIConnectionError) as error:
-            raise LLMTimeoutError(f"Groq timed out or could not connect: {error}") from error
-        except groq.APIStatusError as error:
-            raise LLMProviderError(f"Groq error {error.status_code}: {error}") from error
+        except groq.APIError as error:
+            raise translate_groq_error(error) from error
         try:
             choice = response.choices[0]
         except (AttributeError, IndexError, TypeError) as error:

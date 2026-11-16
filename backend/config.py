@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     llm_max_tries: int = 3                      # per provider, for rate-limit (429) and timeout errors
     llm_backoff_seconds: float = 1.0            # 1 s, then 2 s, then 4 s ... between tries
 
+    # --- Agent (a Groq TEXT model with tool calling; separate from the vision model above) -------------------------
+    agent_model: str = "openai/gpt-oss-20b"
+    agent_reasoning_effort: str = "low"          # these are reasoning models; "low" keeps the output tokens (1,000/min on the free tier) down
+    agent_max_tokens: int = 700                  # output cap per model call
+    agent_max_tool_calls: int = 6                # per user message
+    agent_history_messages: int = 12             # how many past chat messages are sent to the model
+
     # --- Database --------------------------------------------------------------------------------------------------
     database_url: str = "sqlite:///./docuagent.db"
 

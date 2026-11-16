@@ -40,8 +40,8 @@ class GeminiClient(LLMClient):
             )
         except errors.APIError as error:
             code = getattr(error, "code", None)
-            if code == 429:
-                raise LLMRateLimitError(f"Gemini rate limit: {error}") from error
+            if code in (429, 503):                          # 503 = overloaded: retried like a rate limit
+                raise LLMRateLimitError(f"Gemini rate limit or overload: {error}") from error
             if code in (408, 504):
                 raise LLMTimeoutError(f"Gemini timed out: {error}") from error
             raise LLMProviderError(f"Gemini error {code}: {error}") from error

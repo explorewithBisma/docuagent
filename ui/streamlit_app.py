@@ -3,47 +3,22 @@
 Run:  streamlit run ui/streamlit_app.py
 """
 
-import os
+import sys
+from pathlib import Path
 from typing import Any, Optional
 
 import httpx
 import pandas as pd
 import streamlit as st
 
-API_URL = os.getenv("API_URL", "http://localhost:8000").rstrip("/")
+sys.path.insert(0, str(Path(__file__).resolve().parent))          # so the pages can import api_client
+from api_client import API_URL, backend_is_up, call_api, error_text  # noqa: E402
+
 LOW_CONFIDENCE = 0.6
 TEXT_FIELDS = [("vendor_name", "Vendor name"), ("vendor_tax_id", "Vendor tax ID"), ("invoice_number", "Invoice number"), ("invoice_date", "Invoice date (YYYY-MM-DD)"),
                ("due_date", "Due date (YYYY-MM-DD)"), ("currency", "Currency (e.g. USD)")]
 MONEY_FIELDS = [("subtotal", "Subtotal"), ("tax", "Tax"), ("total", "Total")]
 LINE_COLUMNS = ["description", "quantity", "unit_price", "amount"]
-
-
-# ---------------------------------------------------------------------------------------------------------------------
-# API access
-# ---------------------------------------------------------------------------------------------------------------------
-def call_api(method: str, path: str, **kwargs: Any) -> httpx.Response:
-    return httpx.request(method, f"{API_URL}{path}", timeout=180, **kwargs)
-
-
-def error_text(response: httpx.Response) -> str:
-    """A readable message from an error response (the backend sends a string, a {message, errors} object or a list of validation errors)."""
-    try:
-        detail = response.json().get("detail", response.text)
-    except ValueError:
-        return response.text or f"HTTP {response.status_code}"
-    if isinstance(detail, dict):
-        extra = detail.get("errors") or [i["message"] for i in detail.get("issues", [])]
-        return detail.get("message", "Something went wrong.") + ("\n\n" + "\n".join(f"- {line}" for line in extra) if extra else "")
-    if isinstance(detail, list):
-        return "; ".join(f"{'.'.join(map(str, e.get('loc', [])))}: {e.get('msg')}" for e in detail)
-    return str(detail)
-
-
-def backend_is_up() -> bool:
-    try:
-        return call_api("GET", "/health").status_code == 200
-    except httpx.HTTPError:
-        return False
 
 
 # ---------------------------------------------------------------------------------------------------------------------

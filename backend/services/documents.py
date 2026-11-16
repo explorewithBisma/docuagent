@@ -65,6 +65,15 @@ def _analyse(session: Session, settings: Settings, doc: Document, invoice: Invoi
     doc.invoice_date = invoice.invoice_date
 
 
+def _extract(extractor: ResilientExtractor, source: SourceFile):
+    try:
+        return extractor.extract(source)
+    except ExtractionFailed as failure:
+        # nothing is saved when this fails. A cut-off answer is a 422 (the document is the problem, not the service).
+        status = 422 if failure.truncated else 502 if failure.bad_output else 503
+        raise WorkflowError(status, {"message": failure.message, "errors": [] if failure.truncated else failure.errors})
+
+
 # --- upload ------------------------------------------------------------------------------------------------------------------
 def create_from_upload(session: Session, settings: Settings, extractor: ResilientExtractor, filename: str, data: bytes) -> UploadResult:
     if not data:
@@ -87,12 +96,7 @@ def create_from_upload(session: Session, settings: Settings, extractor: Resilien
     if pages > settings.max_pages:
         raise WorkflowError(422, f"The PDF has {pages} pages; the limit is {settings.max_pages}.")
 
-    try:
-        result = extractor.extract(SourceFile(data, file_type.mime, pages))
-    except ExtractionFailed as failure:
-        # nothing is saved here: no record and no file. A cut-off answer is a 422 (the document is the problem, not the service).
-        status = 422 if failure.truncated else 502 if failure.bad_output else 503
-        raise WorkflowError(status, {"message": failure.message, "errors": [] if failure.truncated else failure.errors})
+    result = _extract(extractor, SourceFile(data, file_type.mime, pages))
 
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     path = Path(settings.upload_dir) / f"{file_hash}.{file_type.extension}"
@@ -160,3 +164,48 @@ def list_documents(session: Session, status: Optional[str] = None) -> list[Docum
     if status:
         query = query.where(Document.status == status)
     return list(session.scalars(query))
+
+
+def refresh(session: Session, settings: Settings, doc: Document) -> Document:
+    """Re-run validation and the duplicate check on the data as it is now (the saved records may have changed)."""
+    _analyse(session, settings, doc, Invoice.model_validate(doc.data))
+    session.commit()
+    return doc
+
+
+def reextract(session: Session, settings: Settings, extractor: ResilientExtractor, doc: Document) -> Document:
+    """Read the stored file again with the LLM. Replaces the extracted data of a DRAFT (edits made so far are lost)."""
+    if doc.status == "confirmed":
+        raise WorkflowError(409, "This document is already confirmed and cannot be read again.")
+    path = Path(doc.file_path)
+    if not path.exists():
+        raise WorkflowError(404, "The stored file is missing.")
+    data = path.read_bytes()
+    file_type = detect_file_type(data)
+    if file_type is None:
+        raise WorkflowError(415, "The stored file is not a PDF, PNG or JPG.")
+    try:
+        pages = count_pages(data, file_type)
+    except UnreadableFile as error:
+        raise WorkflowError(422, str(error))
+    result = _extract(extractor, SourceFile(data, file_type.mime, pages))
+    doc.provider = result.provider
+    _analyse(session, settings, doc, result.invoice)
+    session.commit()
+    return doc
+
+
+def search_documents(session: Session, vendor: Optional[str] = None, date_from: Optional[str] = None, date_to: Optional[str] = None,
+                     status: Optional[str] = None, limit: int = 10) -> list[Document]:
+    """Read-only search. `vendor` matches the normalised vendor name (part of it is enough); dates are ISO strings compared on the invoice date."""
+    query = select(Document).order_by(Document.id.desc())
+    key = normalize_vendor(vendor) if vendor else ""
+    if key:
+        query = query.where(Document.vendor_key.contains(key, autoescape=True))
+    if date_from:
+        query = query.where(Document.invoice_date >= date_from)
+    if date_to:
+        query = query.where(Document.invoice_date <= date_to)
+    if status:
+        query = query.where(Document.status == status)
+    return list(session.scalars(query.limit(limit)))

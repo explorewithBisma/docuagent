@@ -153,6 +153,7 @@ def test_groq_errors_map_to_our_errors():
     cases = [(groq.RateLimitError("slow", response=httpx.Response(429, request=request), body=None), LLMRateLimitError),
              (groq.APITimeoutError(request), LLMTimeoutError),
              (groq.APIConnectionError(request=request), LLMTimeoutError),
+             (groq.InternalServerError("qwen is over capacity", response=httpx.Response(503, request=request), body=None), LLMRateLimitError),
              (groq.AuthenticationError("bad key", response=httpx.Response(401, request=request), body=None), LLMProviderError)]
     for error, expected in cases:
         with pytest.raises(expected):
@@ -202,7 +203,7 @@ def test_gemini_falls_back_to_the_json_text_and_rejects_nonsense():
 
 
 def test_gemini_errors_map_to_our_errors():
-    for code, expected in ((429, LLMRateLimitError), (504, LLMTimeoutError), (408, LLMTimeoutError), (400, LLMProviderError), (500, LLMProviderError)):
+    for code, expected in ((429, LLMRateLimitError), (504, LLMTimeoutError), (408, LLMTimeoutError), (400, LLMProviderError), (500, LLMProviderError), (503, LLMRateLimitError)):
         error = genai_errors.APIError(code, {"error": {"message": "x"}})
         with pytest.raises(expected):
             GeminiClient("key", "m", sdk_client=FakeGeminiSDK(error=error)).extract(SOURCE)
@@ -253,3 +254,28 @@ def test_provider_order_can_be_changed_and_bad_names_are_refused():
     assert [c.name for c in build_extractor(Settings(_env_file=None, llm_provider_order="gemini")).clients] == ["gemini"]
     with pytest.raises(ValueError):
         build_extractor(Settings(_env_file=None, llm_provider_order="openai"))
+
+
+def test_groq_503_over_capacity_is_retried_with_backoff_before_falling_back():
+    request = httpx.Request("POST", "https://api.groq.com")
+    over_capacity = groq.InternalServerError("qwen/qwen3.8-27b is currently over capacity", response=httpx.Response(503, request=request), body=None)
+    sdk = FakeGroqSDK(error=over_capacity)
+    gemini = Scripted("gemini", [INVOICE])
+    extractor, sleeps = runner(GroqClient("key", "m", sdk_client=sdk), gemini)
+    result = extractor.extract(IMAGE)
+    assert result.provider == "gemini" and len(sdk.requests) == 3 and sleeps == [1.0, 2.0]          # 3 tries on Groq, then the fallback
+
+
+def test_groq_503_then_success_needs_no_fallback():
+    request = httpx.Request("POST", "https://api.groq.com")
+    over_capacity = groq.InternalServerError("over capacity", response=httpx.Response(503, request=request), body=None)
+
+    class Flaky(FakeGroqSDK):
+        def _create(self, **kwargs):
+            self.requests.append(kwargs)
+            if len(self.requests) == 1:
+                raise over_capacity
+            return SimpleNamespace(choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content=json.dumps({"vendor_name": "Acme"})))])
+
+    extractor, sleeps = runner(GroqClient("key", "m", sdk_client=Flaky()), Scripted("gemini", []))
+    assert extractor.extract(IMAGE).provider == "groq" and sleeps == [1.0]
