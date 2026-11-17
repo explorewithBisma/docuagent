@@ -104,7 +104,8 @@ Two terminals, from the project folder:
 
 ```
 # 1. the backend (API docs at http://localhost:8000/docs)
-uvicorn backend.main:app --reload
+#    --timeout-graceful-shutdown 2: a reload would otherwise hang waiting for open browser connections and keep serving the old code
+uvicorn backend.main:app --reload --timeout-graceful-shutdown 2
 
 # 2. the web page (http://localhost:8501)
 streamlit run ui/streamlit_app.py

@@ -25,7 +25,7 @@ tests/     conftest.py (FakeLLM, tmp DB)   fixtures/make_samples.py (5 fake PDFs
 python -m venv .venv && .venv\Scripts\activate         # macOS/Linux: source .venv/bin/activate
 pip install -r requirements-dev.txt
 copy .env.example .env                                  # then add your own keys
-uvicorn backend.main:app --reload                       # API + docs at http://localhost:8000/docs
+uvicorn backend.main:app --reload --timeout-graceful-shutdown 2   # API + docs at http://localhost:8000/docs (the timeout: reloads hang on open browser connections and keep serving old code)
 streamlit run ui/streamlit_app.py                       # UI at http://localhost:8501
 pytest                                                  # unit + API tests, AI mocked, no network
 pytest -m integration                                   # real Groq/Gemini/agent-model calls (spends free-tier quota; skipped without keys)
