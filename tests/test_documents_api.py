@@ -167,6 +167,14 @@ def test_health(client):
     assert client.get("/health").json() == {"status": "ok"}
 
 
+def test_health_has_a_precise_openapi_schema_for_the_front_end_types(client):
+    schemas = client.get("/openapi.json").json()["components"]["schemas"]
+    assert schemas["HealthResponse"]["properties"]["status"] == {"type": "string", "const": "ok", "title": "Status"}
+    assert schemas["HealthResponse"]["required"] == ["status"]
+    ref = client.get("/openapi.json").json()["paths"]["/health"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    assert ref == {"$ref": "#/components/schemas/HealthResponse"}
+
+
 def test_a_truncated_answer_gives_a_clear_error_and_saves_nothing(client, sample_files, settings, fake_llm, extractor):
     from backend.llm.base import LLMTruncatedOutput
 

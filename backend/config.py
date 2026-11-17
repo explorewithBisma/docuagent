@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     # --- Database --------------------------------------------------------------------------------------------------
     database_url: str = "sqlite:///./docuagent.db"
 
+    # --- CORS (which web pages may call the API from a browser) ----------------------------------------------------
+    cors_origins: str = "http://localhost:5173"  # comma-separated origins, e.g. "http://localhost:5173,https://app.example.com". Never "*".
+
     # --- Uploads ---------------------------------------------------------------------------------------------------
     upload_dir: Path = Field(default=PROJECT_ROOT / "uploads")
     max_upload_mb: int = 10
@@ -42,6 +45,14 @@ class Settings(BaseSettings):
     amount_tolerance: float = 0.01              # money differences up to this are rounding, not errors
     duplicate_date_window_days: int = 3         # "possible duplicate": similar vendor + same total + dates this close
     vendor_similarity: float = 0.85             # 0..1, how alike two normalised vendor names must be
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        """The allowed origins as a list. A wildcard is refused: browsers would then let any website call the API."""
+        origins = [o.strip().rstrip("/") for o in self.cors_origins.split(",") if o.strip()]
+        if "*" in origins:
+            raise ValueError('CORS_ORIGINS must list exact origins (e.g. http://localhost:5173); "*" is not allowed.')
+        return origins
 
     @property
     def max_upload_bytes(self) -> int:

@@ -3,7 +3,8 @@
 DocuAgent reads **invoices and receipts** (PDF, PNG or JPG), extracts the data with an AI model, **checks it** (maths, dates, missing fields), **flags duplicates**, and saves it to a database **only after you confirm**.
 
 **Phase 1** is the pipeline: upload, extract, validate, duplicate check, edit, confirm. **Phase 2** adds an **agent** you chat with (function calling) that does the same steps for you but can never save by itself.
-Not built yet: a React front end, n8n, RAG / invoice analytics, an MCP server, authentication, deployment.
+**Phase 3** (in progress) replaces Streamlit with a React front end in `frontend/`; only the setup is done so far (see "The React front end" below).
+Not built yet: the React screens, n8n, RAG / invoice analytics, an MCP server, authentication, deployment.
 
 ## What it does
 
@@ -65,6 +66,7 @@ backend/   config.py  schemas.py (Pydantic)  models.py  database.py  main.py
            api/documents.py   llm/{base,gemini,groq_client,runner}.py   services/{documents,files,normalize,validation,duplicates}.py
 ui/        streamlit_app.py (Phase 1 page)  pages/2_Agent.py (agent chat)  api_client.py
            (agent code: backend/agent/, backend/api/agent.py, backend/services/agent_sessions.py)
+frontend/  Vite + React + TypeScript + Tailwind (Phase 3)   src/api/ (generated types + typed fetch client)   src/pages/   src/components/
 tests/     conftest.py   fixtures/make_samples.py (5 fake PDFs)   test_*.py
 ```
 
@@ -91,6 +93,7 @@ copy .env.example .env                 # macOS/Linux: cp .env.example .env   - t
 | `GROQ_MODEL` | Groq vision model | `qwen/qwen3.8-27b` |
 | `GROQ_MAX_TOKENS` | Output tokens per Groq call (the free tier allows 1,000 per minute) | `1000` |
 | `DATABASE_URL` | SQLAlchemy URL: `sqlite:///./docuagent.db` or your Neon Postgres URL | SQLite file |
+| `CORS_ORIGINS` | Web pages allowed to call the API from a browser: comma-separated exact origins. `*` is refused | `http://localhost:5173` |
 
 Optional settings (same names in upper case): `AGENT_REASONING_EFFORT` (low), `AGENT_MAX_TOKENS` (700), `AGENT_MAX_TOOL_CALLS` (6), `AGENT_HISTORY_MESSAGES` (12), `MAX_UPLOAD_MB` (10), `MAX_PAGES` (5), `AMOUNT_TOLERANCE` (0.01), `DUPLICATE_DATE_WINDOW_DAYS` (3), `VENDOR_SIMILARITY` (0.85),
 `LLM_MAX_TRIES` (3), `LLM_BACKOFF_SECONDS` (1), `LLM_TIMEOUT_SECONDS` (60), `UPLOAD_DIR`.
@@ -109,6 +112,29 @@ streamlit run ui/streamlit_app.py
 
 The page uses `API_URL` (default `http://localhost:8000`) to find the backend.
 
+### The React front end (Phase 3, setup only)
+
+Needs Node 20.19+ or 22.12+ (developed on Node 26). With the backend running as above, in a third terminal:
+
+```
+cd frontend
+npm install
+npm run dev          # http://localhost:5173
+```
+
+The home page calls `/health` and shows "Backend: ok" or a clear error. `/documents`, `/upload` and `/agent` are empty placeholders for now. Streamlit keeps working alongside it.
+
+| Command (in `frontend/`) | What it does |
+|---|---|
+| `npm run dev` | Dev server on port 5173 (fixed, because the backend's `CORS_ORIGINS` allows exactly that origin) |
+| `npm run build` | Type-check (strict) and build to `frontend/dist/` |
+| `npm run lint` | oxlint |
+| `npm run gen:types` | Regenerates `src/api/schema.d.ts` from `http://localhost:8000/openapi.json` (the backend must be running). Run it after changing an API route or schema, and commit the result |
+
+The backend address comes from `VITE_API_URL` (default `http://localhost:8000`; see `frontend/.env.example`, copy it to `frontend/.env.local` to change it). Only `VITE_*` variables reach the browser, so never put keys there.
+If the page says the backend cannot be reached, check that uvicorn is running and that `CORS_ORIGINS` in the backend's `.env` includes the address in your browser's address bar.
+TypeScript is pinned to 5.9 because `openapi-typescript` does not support TypeScript 7 yet.
+
 API: `POST /documents/upload` - `GET /documents` - `GET /documents/{id}` - `GET /documents/{id}/file` - `PATCH /documents/{id}` - `POST /documents/{id}/confirm` - `GET /health`.
 
 ## Tests
@@ -125,4 +151,4 @@ The sample PDFs are generated from fake data: a clean invoice, a receipt, an inv
 
 - Uploaded files are kept in `uploads/` (git-ignored) so the original can be compared with the extracted fields.
 - Phase 1 creates the tables on start-up and has no migrations.
-- The old project (Spreadsheet Helper) is preserved on the `archive/spreadsheet-helper` branch and the `spreadsheet-helper-final` tag.
+- DocuAgent replaced an older project (Spreadsheet Helper), which is no longer kept.

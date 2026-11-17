@@ -6,7 +6,7 @@ Dates are ISO strings (YYYY-MM-DD) so a badly read date is reported as an issue 
 
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -127,6 +127,10 @@ class UploadResponse(BaseModel):
     document: DocumentOut
     file_duplicate: bool = False    # True: this exact file was uploaded before; `document` is the existing record, the LLM was not called
     message: str = ""
+
+
+class HealthResponse(BaseModel):
+    status: Literal["ok"]
 
 
 class ConfirmRequest(BaseModel):
