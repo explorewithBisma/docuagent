@@ -3,7 +3,6 @@
 ## What this is
 DocuAgent reads invoices and receipts (PDF/PNG/JPG), extracts structured data with an LLM, validates it (maths, dates, missing fields),
 flags missing/wrong fields, blocks duplicates, and saves a document only after the user confirms (draft -> confirmed).
-It replaced the old "Spreadsheet Helper" project, which lives on branch `archive/spreadsheet-helper` / tag `spreadsheet-helper-final`. Never reuse it.
 The GitHub repo is now "docuagent": https://github.com/explorewithBisma/docuagent (`origin`, branch `main`). The old excel-cleaner-webapp repo was deleted.
 The local folder may still be renamed by the user. Do not rename the folder or push unless asked.
 
