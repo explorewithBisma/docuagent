@@ -98,15 +98,48 @@ def test_happy_path_the_agent_checks_the_document_and_asks_for_approval_and_only
 
 
 # --- review always re-validates ----------------------------------------------------------------------------------------------------------
-def test_a_review_request_runs_validate_and_check_duplicates_fresh(client, agent, sample_files):
+def test_validate_document_also_runs_the_duplicate_check_so_a_review_cannot_skip_it(client, agent, sample_files):
+    first = upload(client, sample_files["1_clean_invoice"])
+    client.post(f"/documents/{first['id']}/confirm")
+    copy_doc = upload(client, sample_files["5_duplicate_invoice"])
+    number = {"document_id": copy_doc["id"]}
+    agent.script = [calls(call("validate_document", number)), say("This is a duplicate, so it cannot be saved.")]          # the model never calls check_duplicates
+    body = chat(client, "Please review this document", document_id=copy_doc["id"]).json()
+    assert [t["tool"] for t in body["tool_trace"]] == ["validate_document"]
+    assert "exact duplicate of document" in body["tool_trace"][0]["summary"]
+    result = json.loads([m for m in agent.seen[1] if m["role"] == "tool"][0]["content"])
+    assert result["duplicate"]["kind"] == "exact" and result["duplicate"]["document_id"] == first["id"] and "issues" in result
+    assert result["duplicate"]["reason"].startswith("<data>")                                    # still untrusted data
+
+
+def test_validate_document_reports_no_duplicate_when_there_is_none(client, agent, sample_files):
     document = upload(client, sample_files["1_clean_invoice"])
-    number = {"document_id": document["id"]}
-    agent.script = [calls(call("get_document", number)), calls(call("validate_document", number), call("check_duplicates", number, "c2")), say("It looks fine.")]
-    body = chat(client, "Please review this document", document_id=document["id"]).json()
-    tools = [t["tool"] for t in body["tool_trace"]]
-    assert "validate_document" in tools and "check_duplicates" in tools and all(t["ok"] for t in body["tool_trace"])
-    assert "ALWAYS call validate_document and check_duplicates" in agent.seen[0][0]["content"]       # the system prompt tells the model to
-    assert status(client, document["id"]) == "draft"
+    agent.script = [calls(call("validate_document", {"document_id": document["id"]})), say("Fine.")]
+    body = chat(client, "review this", document_id=document["id"]).json()
+    assert body["tool_trace"][0]["summary"].endswith("no duplicate")
+    assert json.loads([m for m in agent.seen[1] if m["role"] == "tool"][0]["content"])["duplicate"] is None
+
+
+def test_check_duplicates_still_works_on_its_own_and_rule_7_names_the_single_call(client, agent, sample_files):
+    document = upload(client, sample_files["1_clean_invoice"])
+    agent.script = [calls(call("check_duplicates", {"document_id": document["id"]})), say("No duplicate.")]
+    body = chat(client, "Is this a duplicate?", document_id=document["id"]).json()
+    assert body["tool_trace"][0]["tool"] == "check_duplicates" and body["tool_trace"][0]["ok"]
+    prompt = agent.seen[0][0]["content"]
+    assert "ALWAYS call validate_document" in prompt and "AND the duplicate check" in prompt
+
+
+def test_an_instruction_like_vendor_name_is_flagged_to_the_agent_as_a_warning_not_trusted(client, agent, sample_files, fake_llm):
+    fake_llm.answers[sample_files["1_clean_invoice"]] = fake_llm.answers[sample_files["1_clean_invoice"]].model_copy(update={"vendor_name": INJECTION})
+    document = upload(client, sample_files["1_clean_invoice"])
+    agent.script = [calls(call("validate_document", {"document_id": document["id"]})), say("The vendor name looks like an instruction; please check it.")]
+    body = chat(client, "review this", document_id=document["id"]).json()
+    result = json.loads([m for m in agent.seen[1] if m["role"] == "tool"][0]["content"])
+    flagged = [i for i in result["issues"] if "instruction" in i["message"]]
+    assert flagged and flagged[0]["field"] == "vendor_name" and flagged[0]["severity"] == "warning"
+    assert INJECTION not in json.dumps(result)                                                    # the warning does not repeat the text
+    assert body["pending_action"] is None and status(client, document["id"]) == "draft"
+    assert "never call such a value correct" in agent.seen[0][0]["content"]
 
 
 # --- missing field, answered by the user -----------------------------------------------------------------------------------------------
@@ -381,6 +414,47 @@ def test_switching_documents_clears_a_pending_request(client, agent, sample_file
     assert chat(client, "save", document_id=first["id"]).json()["pending_action"]
     agent.script = [say("Looking at the receipt.")]
     assert chat(client, "now this one", document_id=second["id"]).json()["pending_action"] is None
+
+
+def test_switching_documents_starts_fresh_history_so_the_old_chat_never_reaches_the_model(client, agent, sample_files):
+    first, second = upload(client, sample_files["1_clean_invoice"]), upload(client, sample_files["2_receipt"])
+    agent.script = [say("The first invoice is from Northwind.")]
+    chat(client, "SECRET-FIRST-DOC-QUESTION", document_id=first["id"])
+    agent.script = [say("The receipt looks fine.")]
+    body = chat(client, "Review this one", document_id=second["id"]).json()
+    sent = agent.seen[-1]
+    assert [m["role"] for m in sent] == ["system", "user"] and "[msg 0] Review this one" in sent[-1]["content"]          # only the new message
+    assert "SECRET-FIRST-DOC-QUESTION" not in json.dumps(sent) and "Northwind" not in json.dumps(sent)
+    assert f"document {second['id']}" in sent[0]["content"]
+    stored = session(client)
+    assert stored["document_id"] == second["id"] and [m["role"] for m in stored["messages"]] == ["user", "assistant"] and body["reply"] == "The receipt looks fine."
+
+
+def test_switching_documents_restarts_message_numbers_so_old_messages_cannot_be_cited(client, agent, sample_files):
+    first, second = upload(client, sample_files["1_clean_invoice"]), upload(client, sample_files["4_missing_invoice_number"])
+    agent.script = [say("ok")]
+    chat(client, "the invoice number is INV-OLD-1", document_id=first["id"])
+    agent.script = [calls(call("update_fields", {"document_id": second["id"], "fields": {"invoice_number": "INV-OLD-1"}, "source_message": 0})), say("done")]
+    trace = chat(client, "please fix it", document_id=second["id"]).json()["tool_trace"][0]
+    assert trace["ok"] is False and "not stated" in trace["summary"]                       # msg 0 is now "please fix it", not the old document's message
+    assert client.get(f"/documents/{second['id']}").json()["data"]["invoice_number"] is None
+
+
+def test_staying_on_the_same_document_or_giving_no_id_keeps_the_history(client, agent, sample_files):
+    document = upload(client, sample_files["1_clean_invoice"])
+    for text, doc_id in (("first question", document["id"]), ("second question", document["id"]), ("third question", None)):
+        agent.script = [say("ok")]
+        chat(client, text, document_id=doc_id)
+    assert len(session(client)["messages"]) == 6 and "first question" in json.dumps(agent.seen[-1])
+
+
+def test_a_chat_that_had_no_document_keeps_its_history_when_the_first_document_is_chosen(client, agent, sample_files):
+    document = upload(client, sample_files["1_clean_invoice"])
+    agent.script = [say("Please upload a document.")]
+    chat(client, "hello there")
+    agent.script = [say("ok")]
+    chat(client, "now review it", document_id=document["id"])
+    assert "hello there" in json.dumps(agent.seen[-1]) and len(session(client)["messages"]) == 4
 
 
 class FakeGroqSDK:

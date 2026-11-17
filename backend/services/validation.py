@@ -2,6 +2,7 @@
 
 Errors mean the data is probably wrong or incomplete; warnings are worth a look but do not stop the user saving."""
 
+import re
 from decimal import Decimal
 from typing import Optional
 
@@ -9,6 +10,12 @@ from backend.schemas import DocType, Invoice, Issue, Severity
 from backend.services.normalize import parse_iso_date
 
 LOW_CONFIDENCE = 0.6
+
+# Text that reads like an order to an AI rather than document data (prompt injection). Whole words/phrases, case-insensitive. Keep this list small.
+INSTRUCTION_PHRASES = ("ignore previous", "instructions", "approve", "confirm this", "system:")
+INSTRUCTION_PATTERN = re.compile("|".join(rf"(?<!\w){re.escape(p)}(?!\w)" for p in INSTRUCTION_PHRASES), re.IGNORECASE)
+SHORT_TEXT_FIELDS = ("vendor_name", "vendor_tax_id", "invoice_number")        # names and numbers: a long sentence here is not data
+MAX_SHORT_TEXT_WORDS = 8
 
 
 def _dec(value: Optional[float]) -> Optional[Decimal]:
@@ -83,6 +90,15 @@ def validate_invoice(invoice: Invoice, tolerance: float = 0.01) -> list[Issue]:
     for name, value in (("subtotal", subtotal), ("tax", tax), ("total", total)):
         if value is not None and value < 0:
             add("negative_amount", name, Severity.warning, f"The {name} is negative ({_money(value)}). Is this a credit note?")
+
+    # --- text that looks like instructions (never an error: the user decides) -------------------------------------------
+    for name in SHORT_TEXT_FIELDS:
+        text = getattr(invoice, name)
+        if text and (INSTRUCTION_PATTERN.search(text) or len(text.split()) > MAX_SHORT_TEXT_WORDS):
+            add("looks_like_instruction", name, Severity.warning,
+                f"The {name.replace('_', ' ')} reads like an instruction, not data. Check the original document before trusting it.")
+    if any(item.description and INSTRUCTION_PATTERN.search(item.description) for item in invoice.line_items):
+        add("looks_like_instruction", "line_items", Severity.warning, "A line item description reads like an instruction, not data. Check the original document.")
 
     # --- how sure the model was ----------------------------------------------------------------------------------------
     for name in invoice.low_confidence_fields:

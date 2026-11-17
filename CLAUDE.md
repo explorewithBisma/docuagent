@@ -79,9 +79,11 @@ chat, Approve & Save / Reject and a "What the agent did" panel. Groq 503 "over c
 1. Phase 3: React front end replacing Streamlit (the API stays the contract).
 2. Phase 4: n8n automation, chat with invoices (RAG / analytics), MCP server.
 3. Then deploy (Postgres/Neon, auth, migrations).
+   - Audit trail: keep per-document chat history and approval records instead of deleting history on document switch.
 Out of scope until its phase: React, n8n, RAG, invoice analytics, MCP, auth, deployment. Do not add them early.
 
 ## Working agreements
 - Run `pytest` inside `.venv` before every commit; report failures honestly.
 - Commit with a clear message; do not push or rename the folder/repo unless the user asks.
 - Do not uninstall anything from the global Python.
+- After changing any file in ui/ other than the page scripts (e.g. ui/api_client.py), restart Streamlit yourself before saying the work is done.

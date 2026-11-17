@@ -3,8 +3,13 @@ call the right endpoints. Nothing is sent to the model unless a message is typed
 
 from pathlib import Path
 
+import sys
+
 import httpx
 from streamlit.testing.v1 import AppTest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ui"))
+from api_client import session_for_document  # noqa: E402
 
 PAGE = str(Path(__file__).resolve().parents[1] / "ui" / "pages" / "2_Agent.py")
 
@@ -17,6 +22,7 @@ TRACE = [{"step": 1, "tool": "update_fields", "args": {}, "ok": True, "summary":
 class FakeBackend:
     def __init__(self, pending=True, approve_status=200):
         self.calls, self.pending, self.approve_status = [], pending, approve_status
+        self.issues = []                                       # the document's issues; the agent's reply (validate_document) adds one
 
     def __call__(self, method, url, **kwargs):
         self.calls.append((method, url.split("8000")[-1], kwargs.get("json")))
@@ -25,13 +31,14 @@ class FakeBackend:
         if path == "/health":
             return httpx.Response(200, json={"status": "ok"}, request=request)
         if path.startswith("/documents/"):
-            return httpx.Response(200, json={"id": 7, "status": "draft", "issues": [], "data": {"vendor_name": "Acme", "invoice_number": "INV-1", "total": 10.0, "currency": "USD"}}, request=request)
+            return httpx.Response(200, json={"id": 7, "status": "draft", "issues": self.issues, "data": {"vendor_name": "Acme", "invoice_number": "INV-1", "total": 10.0, "currency": "USD"}}, request=request)
         if path.endswith("/approve"):
             body = {"document": {}, "message": "Document 7 saved."} if self.approve_status == 200 else {"detail": {"message": "Document 7 changed after the save was requested. Approval must be requested again.", "stale": True}}
             return httpx.Response(self.approve_status, json=body, request=request)
         if path.endswith("/reject"):
             return httpx.Response(200, json={"message": "Save request for document 7 rejected. Nothing was saved."}, request=request)
         if path == "/agent/chat":
+            self.issues = [{"code": "looks_like_instruction", "field": "vendor_name", "severity": "warning", "message": "x"}]
             return httpx.Response(200, json={"reply": "ok", "tool_trace": [], "pending_action": None}, request=request)
         if path.startswith("/agent/sessions/"):
             return httpx.Response(200, json={"session_id": "s", "document_id": 7, "pending_action": PENDING if self.pending else None, "messages": [
@@ -87,6 +94,31 @@ def test_reject_calls_the_reject_endpoint(monkeypatch):
     app = run(backend, monkeypatch)
     buttons(app)["Reject"].click().run()
     assert [p.split("/")[-1] for m, p, _ in backend.calls if m == "POST"] == ["reject"]
+
+
+def banner(app):
+    return next(i.value for i in app.info if i.value.startswith("**Document #7**"))
+
+
+def test_the_banner_issue_count_is_refreshed_after_the_agents_reply(monkeypatch):
+    app = run(FakeBackend(pending=False), monkeypatch)
+    assert "0 issue(s)" in banner(app)
+    app.chat_input[0].set_value("review it").run()                                         # the agent's validate_document finds 1 issue
+    assert "1 issue(s)" in banner(app) and "0 issue(s)" not in banner(app)
+
+
+def test_the_review_button_also_refreshes_the_banner(monkeypatch):
+    app = run(FakeBackend(pending=False), monkeypatch)
+    buttons(app)["Ask the agent to review it"].click().run()
+    assert "1 issue(s)" in banner(app)
+
+
+def test_a_new_document_starts_a_new_chat_session_and_the_same_document_keeps_it():
+    fresh = iter(["new-1", "new-2"])
+    make = lambda: next(fresh)
+    assert session_for_document("old", 7, 8, make) == "new-1"            # another document: new session, so no history is shared
+    assert session_for_document("old", None, 8, make) == "new-2"         # the first document of the page
+    assert session_for_document("old", 7, 7, make) == "old"              # the same file uploaded again: same document, same chat
 
 
 def test_typing_a_message_sends_it_to_the_agent_and_loading_the_page_does_not(monkeypatch):

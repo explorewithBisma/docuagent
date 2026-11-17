@@ -24,6 +24,8 @@ def get_or_create(db: Session, session_id: str, document_id: Optional[int] = Non
         chat = ChatSession(id=session_id, document_id=document_id, messages=[], pending_action=None)
         db.add(chat)
     elif document_id is not None and document_id != chat.document_id:      # the user switched to another document
+        if chat.document_id is not None:                                    # (a chat that had no document yet has nothing to mix up)
+            chat.messages = []                                              # fresh history: one document's chat is never sent to the model as history about another
         chat.document_id = document_id
         chat.pending_action = None
     db.flush()

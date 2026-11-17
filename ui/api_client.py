@@ -1,7 +1,7 @@
 """How the Streamlit pages talk to the FastAPI backend. No business logic here either."""
 
 import os
-from typing import Any
+from typing import Any, Callable, Optional
 
 import httpx
 
@@ -35,6 +35,11 @@ def upload_notice(body: dict[str, Any]) -> tuple[str, str]:
     if body.get("message"):                                           # e.g. a duplicate or validation warning from the backend
         return "warning", f"{text}\n\n{body['message']}"
     return "success", text
+
+
+def session_for_document(current_session_id: str, current_doc_id: Optional[int], new_doc_id: int, new_session_id: Callable[[], str]) -> str:
+    """The chat session to use after an upload: a different document gets a NEW session, so one document's chat is never sent as history about another."""
+    return current_session_id if new_doc_id == current_doc_id else new_session_id()
 
 
 def backend_is_up() -> bool:

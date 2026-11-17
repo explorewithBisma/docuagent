@@ -12,7 +12,7 @@ import httpx
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))          # ui/ (for api_client)
-from api_client import API_URL, backend_is_up, call_api, error_text  # noqa: E402
+from api_client import API_URL, backend_is_up, call_api, error_text, session_for_document  # noqa: E402
 
 REVIEW_PROMPT = "Please review this document and tell me what is missing or wrong."
 
@@ -68,7 +68,10 @@ with st.expander("1. Upload a document", expanded=st.session_state.agent_doc_id 
             else:
                 if response.status_code == 200:
                     body = response.json()
+                    st.session_state.agent_session_id = session_for_document(
+                        st.session_state.agent_session_id, st.session_state.agent_doc_id, body["document"]["id"], lambda: uuid.uuid4().hex)
                     st.session_state.agent_doc_id = body["document"]["id"]
+                    session_id = st.session_state.agent_session_id          # the chat below must use the new session in this same run
                     notify("info" if body["file_duplicate"] else "success", body["message"] or f"Document #{body['document']['id']} is ready. Ask the agent to review it.")
                 else:
                     notify("error", error_text(response))
@@ -87,14 +90,13 @@ if doc_id is not None:
                 f"total {data.get('total') if data.get('total') is not None else '?'} {data.get('currency') or ''} · {len(doc['issues'])} issue(s)")
     if st.button("Ask the agent to review it"):
         send(REVIEW_PROMPT)
+        st.rerun()                                          # the banner above was drawn before the agent ran: redraw it from the backend
 
 # --- chat -------------------------------------------------------------------------------------------------------------------------------
 prompt = st.chat_input("Tell the agent what to do, or answer its questions (e.g. 'invoice number is INV-2231')")
 if prompt:
     send(prompt)
-    notice = st.session_state.pop("agent_notice", None)
-    if notice:
-        getattr(st, notice[0])(notice[1])
+    st.rerun()                                              # redraw the document banner (its issue count may have changed); any error notice is shown on the rerun
 
 history = call_api("GET", f"/agent/sessions/{session_id}")
 session = history.json() if history.status_code == 200 else {"messages": [], "pending_action": None}

@@ -136,7 +136,9 @@ def extract_document(args: DocumentArgs, ctx: ToolContext) -> ToolResult:
 def validate_document(args: DocumentArgs, ctx: ToolContext) -> ToolResult:
     doc = docs.refresh(ctx.db, ctx.settings, _own_document(ctx, args.document_id, change=False))
     errors = sum(1 for i in doc.issues if i["severity"] == Severity.error.value)
-    return ToolResult({"issues": _issues_view(doc)}, f"{len(doc.issues)} issue(s), {errors} error(s)")
+    duplicate = _duplicate_view(doc)                       # refresh() already re-ran the duplicate check, so a review can never skip it
+    found = "no duplicate" if duplicate is None else f"{duplicate['kind']} duplicate of document {duplicate['document_id']}"
+    return ToolResult({"issues": _issues_view(doc), "duplicate": duplicate}, f"{len(doc.issues)} issue(s), {errors} error(s); {found}")
 
 
 def check_duplicates(args: DocumentArgs, ctx: ToolContext) -> ToolResult:
@@ -199,7 +201,7 @@ class Tool:
 TOOLS: dict[str, Tool] = {t.name: t for t in [
     Tool("get_document", "Show a document's fields, issues and duplicate result.", DocumentArgs, get_document),
     Tool("extract_document", "Read the uploaded file again with the AI (replaces the draft's data).", DocumentArgs, extract_document, mutating=True),
-    Tool("validate_document", "Re-run the checks (maths, dates, required fields). Returns the issues.", DocumentArgs, validate_document),
+    Tool("validate_document", "Review: re-run the checks (maths, dates, required fields) AND the duplicate check. Returns the issues and any duplicate.", DocumentArgs, validate_document),
     Tool("check_duplicates", "Check whether the document duplicates a saved one.", DocumentArgs, check_duplicates),
     Tool("update_fields", "Fix fields with values the USER stated or confirmed. Never guess a value.", UpdateFieldsArgs, update_fields, mutating=True),
     Tool("request_confirmation", "Ask the user to approve saving. Does NOT save.", ConfirmationArgs, request_confirmation, mutating=True),
