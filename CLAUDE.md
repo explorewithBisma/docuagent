@@ -35,7 +35,9 @@ Front end (Phase 3), from `frontend/` with the backend running:
 ```
 npm install                                             # first time
 npm run dev                                             # http://localhost:5173 (port is fixed: the backend's CORS_ORIGINS allows exactly this origin)
+npm test                                                # Vitest + Testing Library, mocked fetch, no network (run it from PowerShell: Git Bash's lowercase c:/ path breaks Vitest)
 npm run build                                           # strict type-check + production build; run it before every front-end commit
+npm run lint                                            # oxlint
 npm run gen:types                                       # regenerate src/api/schema.d.ts from http://localhost:8000/openapi.json; commit it; never edit it by hand
 ```
 Front-end rules: the browser only talks to the API through `src/api/client.ts` (typed from the generated schema); no business logic in components;
@@ -49,6 +51,7 @@ On the Windows bash tool, heredocs mangle backslashes and apostrophes: use the W
 - Every LLM provider sits behind the `LLMClient` interface and maps SDK errors to our `LLMError` classes. Tests use a fake client, never the network.
 - Missing data is `null`, never invented. Validation is plain Python (Decimal maths), not AI.
 - Nothing is saved from a failed or truncated extraction (no DB row, no uploaded file).
+- Timestamps are UTC end to end: DB columns use `UTCDateTime` (models.py: always timezone-aware UTC, SQLite and Postgres alike) and API schemas use `UTCDatetime` (schemas.py: sent as `...Z`). New datetime columns/fields must use them.
 - Duplicates are checked against CONFIRMED documents only. An exact duplicate can never be confirmed.
 - No real data in fixtures: all sample invoices are fake (made by reportlab in `tests/fixtures/make_samples.py`).
 - Secrets only in `.env` (git-ignored). `.env.example` has placeholders only. Never print or commit keys.
@@ -88,7 +91,7 @@ chat sessions in the DB, `POST /agent/chat`, `GET /agent/sessions/{id}`, `POST /
 chat, Approve & Save / Reject and a "What the agent did" panel. Groq 503 "over capacity" is retried like 429.
 
 ## Roadmap
-1. Phase 3: React front end replacing Streamlit (the API stays the contract). Step 1 (setup, health page, empty routes, CORS) is done; the real screens are next. Streamlit stays until the React app covers it.
+1. Phase 3: React front end replacing Streamlit (the API stays the contract). Step 1 (setup, health page, empty routes, CORS) and step 2 (Documents list at /documents, with Vitest tests) are done; the document detail/review screen (step 3), upload and agent screens are next. Streamlit stays until the React app covers it.
 2. Phase 4: n8n automation, chat with invoices (RAG / analytics), MCP server.
 3. Then deploy (Postgres/Neon, auth, migrations).
    - Audit trail: keep per-document chat history and approval records instead of deleting history on document switch.

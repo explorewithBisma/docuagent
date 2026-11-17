@@ -122,13 +122,14 @@ npm install
 npm run dev          # http://localhost:5173
 ```
 
-The home page calls `/health` and shows "Backend: ok" or a clear error. `/documents`, `/upload` and `/agent` are empty placeholders for now. Streamlit keeps working alongside it.
+The home page calls `/health` and shows "Backend: ok" or a clear error. **`/documents`** lists the documents (status filter kept in the URL as `?status=draft|confirmed`, refresh button, loading / error / empty states; each row links to `/documents/:id`, a placeholder for now). `/upload` and `/agent` are empty placeholders. Streamlit keeps working alongside it.
 
 | Command (in `frontend/`) | What it does |
 |---|---|
 | `npm run dev` | Dev server on port 5173 (fixed, because the backend's `CORS_ORIGINS` allows exactly that origin) |
 | `npm run build` | Type-check (strict) and build to `frontend/dist/` |
 | `npm run lint` | oxlint |
+| `npm test` | Vitest + React Testing Library (jsdom) with a mocked `fetch`: no backend and no network needed. `npm run test:watch` re-runs on change |
 | `npm run gen:types` | Regenerates `src/api/schema.d.ts` from `http://localhost:8000/openapi.json` (the backend must be running). Run it after changing an API route or schema, and commit the result |
 
 The backend address comes from `VITE_API_URL` (default `http://localhost:8000`; see `frontend/.env.example`, copy it to `frontend/.env.local` to change it). Only `VITE_*` variables reach the browser, so never put keys there.

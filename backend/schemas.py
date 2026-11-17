@@ -6,9 +6,14 @@ Dates are ISO strings (YYYY-MM-DD) so a badly read date is reported as an issue 
 
 from datetime import datetime
 from enum import Enum
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AfterValidator, BaseModel, Field, field_validator
+
+from backend.timeutil import as_utc
+
+# Every timestamp the API sends is timezone-aware UTC, written like 2026-11-17T18:32:43.779644Z (a naive value is taken to be UTC).
+UTCDatetime = Annotated[datetime, AfterValidator(as_utc)]
 
 
 class DocType(str, Enum):
@@ -106,8 +111,8 @@ class DocumentOut(BaseModel):
     data: Invoice
     issues: list[Issue]
     duplicate: Optional[DuplicateMatch] = None
-    created_at: datetime
-    confirmed_at: Optional[datetime] = None
+    created_at: UTCDatetime
+    confirmed_at: Optional[UTCDatetime] = None
 
 
 class DocumentSummary(BaseModel):
@@ -120,7 +125,7 @@ class DocumentSummary(BaseModel):
     currency: Optional[str] = None
     total: Optional[float] = None
     issue_count: int = 0
-    created_at: datetime
+    created_at: UTCDatetime
 
 
 class UploadResponse(BaseModel):

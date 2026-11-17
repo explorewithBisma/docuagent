@@ -11,7 +11,7 @@ export default function Layout() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <header className="border-b border-slate-200 bg-white">
-        <nav className="mx-auto flex max-w-5xl items-center gap-6 px-4 py-3" aria-label="Main">
+        <nav className="mx-auto flex max-w-6xl items-center gap-6 px-4 py-3" aria-label="Main">
           <span className="text-lg font-semibold">📄 DocuAgent</span>
           <ul className="flex gap-4">
             {LINKS.map(({ to, label, end }) => (
@@ -30,7 +30,7 @@ export default function Layout() {
           </ul>
         </nav>
       </header>
-      <main className="mx-auto max-w-5xl px-4 py-8">
+      <main className="mx-auto max-w-6xl px-4 py-8">
         <Outlet />
       </main>
     </div>

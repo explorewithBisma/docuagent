@@ -1,9 +1,16 @@
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: { port: 5173, strictPort: true }, // the backend's CORS_ORIGINS allows http://localhost:5173, so never fall back to another port
+  test: {
+    environment: 'jsdom',
+    setupFiles: ['./src/test/setup.ts'],
+    css: false,
+    restoreMocks: true,
+    unstubGlobals: true, // fetch is stubbed per test (see src/test/utils.tsx); undo it afterwards
+  },
 })

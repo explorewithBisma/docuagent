@@ -5,13 +5,29 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy import JSON, DateTime, Float, Integer, String
+from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.types import TypeDecorator
 
 from backend.database import Base
+from backend.timeutil import as_utc
 
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+class UTCDateTime(TypeDecorator):
+    """A timestamp that always comes back timezone-aware in UTC, on SQLite and Postgres alike.
+    Written as UTC too: SQLite would otherwise keep an aware value's clock time and silently drop its offset."""
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value: Optional[datetime], dialect: Dialect) -> Optional[datetime]:
+        return None if value is None else as_utc(value)
+
+    def process_result_value(self, value: Optional[datetime], dialect: Dialect) -> Optional[datetime]:
+        return None if value is None else as_utc(value)
 
 
 class Document(Base):
@@ -35,8 +51,8 @@ class Document(Base):
     total: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     invoice_date: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    confirmed_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, nullable=True)
 
 
 class ChatSession(Base):
@@ -48,5 +64,5 @@ class ChatSession(Base):
     document_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     messages: Mapped[list[Any]] = mapped_column(JSON, default=list)
     pending_action: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
