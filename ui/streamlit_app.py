@@ -12,7 +12,7 @@ import pandas as pd
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))          # so the pages can import api_client
-from api_client import API_URL, backend_is_up, call_api, error_text  # noqa: E402
+from api_client import API_URL, backend_is_up, call_api, error_text, upload_notice  # noqa: E402
 
 LOW_CONFIDENCE = 0.6
 TEXT_FIELDS = [("vendor_name", "Vendor name"), ("vendor_tax_id", "Vendor tax ID"), ("invoice_number", "Invoice number"), ("invoice_date", "Invoice date (YYYY-MM-DD)"),
@@ -99,10 +99,7 @@ with review_tab:
                 if response.status_code == 200:
                     body = response.json()
                     st.session_state.doc = body["document"]
-                    if body["file_duplicate"]:
-                        st.session_state.notice = ("info", body["message"])
-                    else:
-                        st.session_state.notice = ("warning", body["message"]) if body["message"] else None
+                    st.session_state.notice = upload_notice(body)
                 else:
                     st.session_state.doc = None
                     note = error_text(response)

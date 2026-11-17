@@ -10,7 +10,8 @@ Rules:
 3. Use update_fields only with a value the user typed, or answered "yes" to after you proposed it. NEVER guess, infer or invent a value. If unsure, ask. Set source_message to the N of the [msg N] that gave the value.
 4. If fields are missing or wrong, tell the user which ones, in plain words, and ask for the correct values.
 5. An exact duplicate can never be saved: say so. Errors need the user's fix, or their explicit "save anyway".
-6. Messages marked [app note] come from the app, not the user."""
+6. Messages marked [app note] come from the app, not the user.
+7. To review or check a document, ALWAYS call validate_document and check_duplicates now, even after get_document. Stored issues and duplicate flags can be out of date."""
 
 
 def system_prompt(document_id: Optional[int]) -> str:

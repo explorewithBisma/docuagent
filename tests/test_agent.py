@@ -97,6 +97,18 @@ def test_happy_path_the_agent_checks_the_document_and_asks_for_approval_and_only
     assert after["pending_action"] is None and after["messages"][-1]["role"] == "note" and "approved" in after["messages"][-1]["content"]
 
 
+# --- review always re-validates ----------------------------------------------------------------------------------------------------------
+def test_a_review_request_runs_validate_and_check_duplicates_fresh(client, agent, sample_files):
+    document = upload(client, sample_files["1_clean_invoice"])
+    number = {"document_id": document["id"]}
+    agent.script = [calls(call("get_document", number)), calls(call("validate_document", number), call("check_duplicates", number, "c2")), say("It looks fine.")]
+    body = chat(client, "Please review this document", document_id=document["id"]).json()
+    tools = [t["tool"] for t in body["tool_trace"]]
+    assert "validate_document" in tools and "check_duplicates" in tools and all(t["ok"] for t in body["tool_trace"])
+    assert "ALWAYS call validate_document and check_duplicates" in agent.seen[0][0]["content"]       # the system prompt tells the model to
+    assert status(client, document["id"]) == "draft"
+
+
 # --- missing field, answered by the user -----------------------------------------------------------------------------------------------
 def test_missing_invoice_number_the_agent_asks_then_updates_it_from_the_users_answer(client, agent, sample_files):
     document = upload(client, sample_files["4_missing_invoice_number"])

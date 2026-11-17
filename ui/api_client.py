@@ -26,6 +26,17 @@ def error_text(response: httpx.Response) -> str:
     return str(detail)
 
 
+def upload_notice(body: dict[str, Any]) -> tuple[str, str]:
+    """(level, text) shown after an upload. `body` is the /documents/upload response; `file_duplicate` tells a new draft from a same-file hit."""
+    number = body["document"]["id"]
+    if body.get("file_duplicate"):
+        return "info", f"You already uploaded this file. Showing document #{number}."
+    text = f"Draft created as document #{number}. Nothing is saved until you click Confirm."
+    if body.get("message"):                                           # e.g. a duplicate or validation warning from the backend
+        return "warning", f"{text}\n\n{body['message']}"
+    return "success", text
+
+
 def backend_is_up() -> bool:
     try:
         return call_api("GET", "/health").status_code == 200
