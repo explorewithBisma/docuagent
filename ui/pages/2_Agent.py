@@ -21,7 +21,7 @@ st.title("🤖 DocuAgent - Agent")
 st.caption("Upload an invoice or receipt and chat with the agent. It checks the document, asks you for anything missing, and asks for your approval before saving.")
 
 if not backend_is_up():
-    st.error(f"The backend is not running at {API_URL}. Start it with:  `uvicorn backend.main:app --reload`")
+    st.error(f"The backend is not running at {API_URL}. Start it with:  `uvicorn backend.main:app --reload --timeout-graceful-shutdown 2`")
     st.stop()
 
 st.session_state.setdefault("agent_session_id", uuid.uuid4().hex)

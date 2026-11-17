@@ -82,7 +82,7 @@ st.title("📄 DocuAgent")
 st.caption("Upload an invoice or receipt. I read it, check it, flag problems and duplicates, and save it only after you confirm.")
 
 if not backend_is_up():
-    st.error(f"The backend is not running at {API_URL}. Start it with:  `uvicorn backend.main:app --reload`")
+    st.error(f"The backend is not running at {API_URL}. Start it with:  `uvicorn backend.main:app --reload --timeout-graceful-shutdown 2`")
     st.stop()
 
 review_tab, saved_tab = st.tabs(["Upload & review", "Saved documents"])

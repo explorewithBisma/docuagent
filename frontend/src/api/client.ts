@@ -77,7 +77,7 @@ async function request<P extends PathsFor<M>, M extends Method>(method: M, path:
     })
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error
-    throw new ApiError(`Could not reach the backend at ${API_URL}. Is it running? (uvicorn backend.main:app --reload) Does its CORS_ORIGINS include ${window.location.origin}?`, 0)
+    throw new ApiError(`Could not reach the backend at ${API_URL}. Is it running? (uvicorn backend.main:app --reload --timeout-graceful-shutdown 2) Does its CORS_ORIGINS include ${window.location.origin}?`, 0)
   }
   if (!response.ok) {
     const body: unknown = await response.json().catch(() => undefined)
