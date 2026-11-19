@@ -18,7 +18,11 @@ export type ResponseOf<P extends keyof paths, M extends Method> =
     : never
 
 type JsonBodyOf<P extends keyof paths, M extends Method> =
-  OperationOf<P, M> extends { requestBody: { content: { 'application/json': infer B } } } ? B : never
+  OperationOf<P, M> extends { requestBody?: infer RB } // optional in the schema when the backend has a default (e.g. confirm)
+    ? NonNullable<RB> extends { content: { 'application/json': infer B } }
+      ? B
+      : never
+    : never
 type PathParamsOf<P extends keyof paths, M extends Method> =
   OperationOf<P, M> extends { parameters: { path: infer PP } } ? PP : never
 type QueryOf<P extends keyof paths, M extends Method> =
@@ -50,8 +54,10 @@ export function errorText(detail: unknown, fallback: string): string {
     return detail.map((e: { loc?: unknown[]; msg?: string }) => `${(e.loc ?? []).join('.')}: ${e.msg ?? ''}`).join('; ')
   }
   if (detail && typeof detail === 'object') {
-    const { message, errors } = detail as { message?: string; errors?: string[] }
-    return [message ?? fallback, ...(errors ?? []).map((line) => `- ${line}`)].join('\n')
+    // the backend sends extra lines as `errors` (strings) or, when a confirm is refused, as `issues` ({message} objects)
+    const { message, errors, issues } = detail as { message?: string; errors?: string[]; issues?: { message?: string }[] }
+    const lines = [...(errors ?? []), ...(issues ?? []).map((issue) => issue.message ?? '').filter(Boolean)]
+    return [message ?? fallback, ...lines.map((line) => `- ${line}`)].join('\n')
   }
   return fallback
 }

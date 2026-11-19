@@ -122,20 +122,23 @@ def get_or_404(session: Session, document_id: int) -> Document:
 
 
 def apply_patch(session: Session, settings: Settings, doc: Document, patch: dict[str, Any]) -> Document:
-    """The user fixes fields. Only the fields in `patch` change (null clears one); a fixed field counts as fully confident."""
+    """The user fixes fields. Only the fields in `patch` change (null clears one). A field that actually CHANGES counts as fully confident
+    (it leaves `low_confidence_fields`); sending a field with the value it already has is a no-op and keeps its low-confidence warning."""
     if doc.status == "confirmed":
         raise WorkflowError(409, "This document is already confirmed and can no longer be edited.")
     allowed = set(Invoice.model_fields)
     unknown = sorted(set(patch) - allowed)
     if unknown:
         raise WorkflowError(422, f"Unknown field(s): {', '.join(unknown)}.")
-    merged = {**Invoice.model_validate(doc.data).model_dump(), **patch}
-    if "low_confidence_fields" not in patch:         # a field the user has just fixed is no longer in doubt
-        merged["low_confidence_fields"] = [f for f in merged["low_confidence_fields"] if f not in patch]
+    stored = Invoice.model_validate(doc.data)
     try:
-        invoice = Invoice.model_validate(merged)
+        invoice = Invoice.model_validate({**stored.model_dump(), **patch})
     except ValidationError as error:
         raise WorkflowError(422, "; ".join(f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in error.errors()))
+    if "low_confidence_fields" not in patch:
+        # compared after validation, so "usd" over "USD" or " Acme " over "Acme" is not a change either
+        changed = {name for name in patch if getattr(invoice, name) != getattr(stored, name)}
+        invoice = invoice.model_copy(update={"low_confidence_fields": [f for f in invoice.low_confidence_fields if f not in changed]})
     _analyse(session, settings, doc, invoice)
     session.commit()
     return doc

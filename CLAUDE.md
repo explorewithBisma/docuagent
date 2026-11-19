@@ -42,6 +42,8 @@ npm run gen:types                                       # regenerate src/api/sch
 ```
 Front-end rules: the browser only talks to the API through `src/api/client.ts` (typed from the generated schema); no business logic in components;
 `VITE_API_URL` is the only env var (never put secrets in `VITE_*`); TypeScript stays on 5.9 until `openapi-typescript` supports 7.
+The app runs on a data router (`src/routes.tsx` + `createBrowserRouter`), because `useBlocker` (the unsaved-changes warning) needs one: add pages to the route table, not to `<Routes>`.
+The review form PATCHes only the fields the user CHANGED (`diffForm` in `src/lib/documentForm.ts`). The backend also ignores unchanged values (`apply_patch`: only a field whose validated value really changes leaves `low_confidence_fields`), so a client that sends every field, like Streamlit, keeps the warnings too.
 Backend CORS: `CORS_ORIGINS` (comma-separated exact origins, default `http://localhost:5173`); `*` is refused by `Settings.cors_origin_list`.
 On the Windows bash tool, heredocs mangle backslashes and apostrophes: use the Write/Edit tools for such content.
 
@@ -91,7 +93,7 @@ chat sessions in the DB, `POST /agent/chat`, `GET /agent/sessions/{id}`, `POST /
 chat, Approve & Save / Reject and a "What the agent did" panel. Groq 503 "over capacity" is retried like 429.
 
 ## Roadmap
-1. Phase 3: React front end replacing Streamlit (the API stays the contract). Step 1 (setup, health page, empty routes, CORS) and step 2 (Documents list at /documents, with Vitest tests) are done; the document detail/review screen (step 3), upload and agent screens are next. Streamlit stays until the React app covers it.
+1. Phase 3: React front end replacing Streamlit (the API stays the contract). Step 1 (setup, health page, empty routes, CORS), step 2 (Documents list at /documents) and step 3 (document detail/review at /documents/:id: edit, save, confirm) are done, all with Vitest tests; the upload and agent screens are next. Streamlit stays until the React app covers it.
 2. Phase 4: n8n automation, chat with invoices (RAG / analytics), MCP server.
 3. Then deploy (Postgres/Neon, auth, migrations).
    - Audit trail: keep per-document chat history and approval records instead of deleting history on document switch.

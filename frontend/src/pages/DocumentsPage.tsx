@@ -1,17 +1,10 @@
-import { Link, useSearchParams } from 'react-router'
-import { DOCUMENT_STATUSES, parseStatus, useDocuments, type DocumentStatus, type DocumentSummary } from '../api/documents'
+import { Link, useLocation, useSearchParams } from 'react-router'
+import { DOCUMENT_STATUSES, parseStatus, useDocuments, type DocumentSummary } from '../api/documents'
+import StatusBadge from '../components/StatusBadge'
 import { formatDate, formatDateTime, formatMoney } from '../lib/format'
+import { STATUS_LABELS } from '../lib/status'
 
-const STATUS_LABELS: Record<DocumentStatus, string> = { draft: 'Draft', confirmed: 'Confirmed' }
-const BADGE_STYLES: Record<DocumentStatus, string> = {
-  draft: 'bg-amber-100 text-amber-800 ring-amber-300',
-  confirmed: 'bg-green-100 text-green-800 ring-green-300',
-}
 const EMPTY = '—'
-
-function StatusBadge({ status }: { status: DocumentStatus }) {
-  return <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${BADGE_STYLES[status]}`}>{STATUS_LABELS[status]}</span>
-}
 
 function IssueCount({ count }: { count: number }) {
   if (count === 0) return <span className="text-slate-400">0</span>
@@ -22,11 +15,12 @@ function IssueCount({ count }: { count: number }) {
   )
 }
 
-function DocumentRow({ doc }: { doc: DocumentSummary }) {
+function DocumentRow({ doc, listSearch }: { doc: DocumentSummary; listSearch: string }) {
   return (
     <tr className="border-t border-slate-100 hover:bg-slate-50">
       <td className="px-3 py-2 whitespace-nowrap">
-        <Link to={`/documents/${doc.id}`} className="font-medium text-blue-700 underline" aria-label={`Open document ${doc.id}`}>
+        {/* the filter (?status=draft) travels with the link, so the detail page's "Back" returns to the same filtered list */}
+        <Link to={`/documents/${doc.id}`} state={{ listSearch }} className="font-medium text-blue-700 underline" aria-label={`Open document ${doc.id}`}>
           #{doc.id}
         </Link>
       </td>
@@ -55,6 +49,7 @@ function DocumentRow({ doc }: { doc: DocumentSummary }) {
 const COLUMNS = ['ID', 'Status', 'Vendor', 'Invoice no.', 'Date', 'Currency', 'Total', 'Issues', 'File', 'Created']
 
 export default function DocumentsPage() {
+  const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const status = parseStatus(searchParams.get('status')) // the URL is the single source of truth, so refresh and the back button keep the filter
   const documents = useDocuments(status)
@@ -158,7 +153,7 @@ export default function DocumentsPage() {
                 </thead>
                 <tbody>
                   {rows.map((doc) => (
-                    <DocumentRow key={doc.id} doc={doc} />
+                    <DocumentRow key={doc.id} doc={doc} listSearch={location.search} />
                   ))}
                 </tbody>
               </table>

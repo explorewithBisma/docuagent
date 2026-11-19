@@ -123,7 +123,9 @@ npm install
 npm run dev          # http://localhost:5173
 ```
 
-The home page calls `/health` and shows "Backend: ok" or a clear error. **`/documents`** lists the documents (status filter kept in the URL as `?status=draft|confirmed`, refresh button, loading / error / empty states; each row links to `/documents/:id`, a placeholder for now). `/upload` and `/agent` are empty placeholders. Streamlit keeps working alongside it.
+The home page calls `/health` and shows "Backend: ok" or a clear error. **`/documents`** lists the documents (status filter kept in the URL as `?status=draft|confirmed`, refresh button, loading / error / empty states; each row links to `/documents/:id`).
+**`/documents/:id`** is the review page: header with the status and a link to the original file, errors and warnings apart, the duplicate result (an exact duplicate blocks Confirm), an edit form with editable line items, **Save changes** (shows the re-validated issues), and **Confirm** (only with no errors, no exact duplicate and no unsaved edits; it asks "Are you sure?" in the page). A confirmed document is read-only, and leaving with unsaved edits is warned about.
+`/upload` and `/agent` are empty placeholders. Streamlit keeps working alongside it.
 
 | Command (in `frontend/`) | What it does |
 |---|---|

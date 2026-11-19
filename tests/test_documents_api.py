@@ -81,6 +81,98 @@ def test_patch_fixes_fields_and_revalidates(client, sample_files):
     assert cleared["data"]["due_date"] is None
 
 
+# --- PATCH and low-confidence warnings: only a field that really CHANGES counts as confirmed by the user -------------------------------------
+FLAGGED = ["vendor_name", "invoice_number", "total", "currency", "line_items"]
+
+
+@pytest.fixture
+def flagged(client, sample_files, fake_llm):
+    """An uploaded clean invoice whose reader was unsure about five fields (so it carries five low-confidence warnings)."""
+    name = "1_clean_invoice"
+    fake_llm.answers[sample_files[name]] = fake_llm.answers[sample_files[name]].model_copy(update={"low_confidence_fields": FLAGGED})
+    document = upload(client, name, sample_files[name]).json()["document"]
+    assert document["data"]["low_confidence_fields"] == FLAGGED
+    assert {i["field"] for i in document["issues"] if i["code"] == "low_confidence"} == set(FLAGGED)
+    return document
+
+
+def patch(client, document, body):
+    response = client.patch(f"/documents/{document['id']}", json=body)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def warned(document):
+    return {i["field"] for i in document["issues"] if i["code"] == "low_confidence"}
+
+
+def test_patch_with_unchanged_values_keeps_every_low_confidence_warning(client, flagged):
+    data = flagged["data"]
+    same = {"vendor_name": data["vendor_name"], "invoice_number": data["invoice_number"], "total": data["total"], "currency": data["currency"],
+            "line_items": data["line_items"]}                                                  # what the old form did: send every field back unchanged
+    result = patch(client, flagged, same)
+    assert result["data"]["low_confidence_fields"] == FLAGGED and warned(result) == set(FLAGGED)
+    assert result["data"] == flagged["data"]                                                   # and nothing else moved
+
+
+def test_patch_with_a_changed_value_clears_only_that_fields_warning(client, flagged):
+    result = patch(client, flagged, {"invoice_number": "INV-2024-777"})
+    assert result["data"]["invoice_number"] == "INV-2024-777"
+    assert result["data"]["low_confidence_fields"] == [f for f in FLAGGED if f != "invoice_number"]       # order kept
+    assert warned(result) == set(FLAGGED) - {"invoice_number"}
+
+
+def test_patch_mixing_unchanged_and_changed_fields_clears_only_the_changed_ones(client, flagged):
+    data = flagged["data"]
+    result = patch(client, flagged, {"vendor_name": data["vendor_name"], "total": data["total"], "currency": "EUR"})     # two unchanged, one changed
+    assert result["data"]["currency"] == "EUR"
+    assert result["data"]["low_confidence_fields"] == ["vendor_name", "invoice_number", "total", "line_items"]
+
+
+def test_the_same_value_written_differently_is_still_unchanged(client, flagged):
+    result = patch(client, flagged, {"currency": " usd ", "vendor_name": f"  {flagged['data']['vendor_name']}  "})       # trimmed / upper-cased by the model
+    assert result["data"]["currency"] == "USD" and result["data"]["low_confidence_fields"] == FLAGGED
+
+
+def test_changing_line_items_clears_their_warning_and_resending_them_does_not(client, flagged):
+    items = flagged["data"]["line_items"]
+    assert patch(client, flagged, {"line_items": items})["data"]["low_confidence_fields"] == FLAGGED
+    edited = [{**items[0], "description": "Something else"}, *items[1:]]
+    assert "line_items" not in patch(client, flagged, {"line_items": edited})["data"]["low_confidence_fields"]
+
+
+def test_clearing_a_field_to_null_is_a_change_but_nulling_an_empty_field_is_not(client, flagged):
+    assert "total" not in patch(client, flagged, {"total": None})["data"]["low_confidence_fields"]           # a real change (it was 139.29)
+    again = patch(client, flagged, {"due_date": None, "total": None})                                       # due_date was already empty
+    assert again["data"]["low_confidence_fields"] == [f for f in FLAGGED if f != "total"]
+
+
+def test_an_explicit_low_confidence_list_in_the_patch_is_used_as_sent(client, flagged):
+    assert patch(client, flagged, {"low_confidence_fields": ["tax"]})["data"]["low_confidence_fields"] == ["tax"]
+    assert patch(client, flagged, {"low_confidence_fields": []})["data"]["low_confidence_fields"] == []
+
+
+def test_the_streamlit_pages_whole_form_save_still_works_and_changes_only_what_the_user_edited(client, flagged):
+    """Streamlit's "Save changes" sends EVERY field (ui/streamlit_app.py collect_form: blanks as null, money as numbers, line items as rows)."""
+    data = flagged["data"]
+    form = {"doc_type": data["doc_type"], "vendor_name": data["vendor_name"], "vendor_tax_id": data["vendor_tax_id"], "invoice_number": data["invoice_number"],
+            "invoice_date": data["invoice_date"], "due_date": data["due_date"], "currency": data["currency"], "subtotal": data["subtotal"], "tax": data["tax"],
+            "total": data["total"], "line_items": [{c: item.get(c) for c in ("description", "quantity", "unit_price", "amount")} for item in data["line_items"]]}
+    untouched = patch(client, flagged, form)
+    assert untouched["data"]["low_confidence_fields"] == FLAGGED and untouched["data"] == data      # saving without editing keeps every warning
+
+    form["invoice_number"] = "INV-2024-888"                                                          # the user fixes one field, then presses Save
+    edited = patch(client, flagged, form)
+    assert edited["data"]["invoice_number"] == "INV-2024-888"
+    assert edited["data"]["low_confidence_fields"] == [f for f in FLAGGED if f != "invoice_number"]
+
+
+def test_an_unchanged_patch_still_revalidates(client, sample_files):
+    document = upload(client, "3", sample_files["3_math_error"]).json()["document"]               # has the planted total error
+    again = patch(client, document, {"vendor_name": document["data"]["vendor_name"]})
+    assert issue_codes(again) == {"total_mismatch"}                                                # a no-op patch still re-runs the checks
+
+
 def test_patch_rejects_unknown_fields_and_bad_values(client, sample_files):
     document = upload(client, "1", sample_files["1_clean_invoice"]).json()["document"]
     assert client.patch(f"/documents/{document['id']}", json={"colour": "red"}).status_code == 422
